@@ -43,6 +43,14 @@ class NoHardcodedSecretsTest {
         }
     }
 
+    // The local ".env" file holds the real DB password, so it must never be committed.
+    @Test
+    void gitignore_excludesTheLocalDotEnvFile() throws IOException {
+        List<String> lines = Files.readAllLines(Path.of(".gitignore")).stream().map(String::trim).toList();
+
+        assertTrue(lines.contains(".env"), ".gitignore must contain a line with exactly: .env");
+    }
+
     @Test
     void javaSources_containNoApiKeyLikeStringLiterals() throws IOException {
         for (Path file : filesWithExtension(".java")) {
