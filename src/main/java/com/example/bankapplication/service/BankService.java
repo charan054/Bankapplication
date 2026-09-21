@@ -6,11 +6,15 @@ import com.example.bankapplication.entity.BankTransaction;
 import com.example.bankapplication.exception.MobileNumberException;
 import com.example.bankapplication.exception.UserExistException;
 import com.example.bankapplication.exception.UserNotFoundException;
+import com.example.bankapplication.exception.WithdrawException;
 import com.example.bankapplication.kafka.BankKafkaProducer;
 import com.example.bankapplication.repository.BankRepository;
 import com.example.bankapplication.repository.BankTransactionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +43,7 @@ public class BankService {
         }
         return dto;
     }
+    @Transactional
     public Bank save(Bank user)
     {
         long phno=user.getPhno();
@@ -83,11 +88,13 @@ public class BankService {
         user.setAcno(acno+1);
         return userRepository.save(user);
     }
+    @Transactional
     public String withdrawByphno(long phno, double amount)
     {
         Bank exis=userRepository.findByphno(phno);
         if(exis!=null)
         {
+            checkSufficientFunds(exis,amount);
             exis.setBalance(exis.getBalance()-amount);
             BankTransaction b=new BankTransaction();
             b.setPhno(phno);
@@ -108,14 +115,17 @@ public class BankService {
         {
             throw new UserNotFoundException("User not found");
         }
+        notifyAfterCommit("Amount Withdraw successfully. Phone: "+phno+" Amount: "+ amount +", Current Balance: "+ exis.getBalance());
         userRepository.save(exis);
         return "Withdraw Successful Amount Inr : "+amount;
     }
+    @Transactional
     public  String withdrawByacno(long acno, double amount)
     {
         Bank exis=userRepository.findByacno(acno);
         if(exis!=null)
         {
+            checkSufficientFunds(exis,amount);
             exis.setBalance(exis.getBalance()-amount);
             BankTransaction b=new BankTransaction();
             b.setPhno(userRepository.findByacno(acno).getPhno());
@@ -131,13 +141,15 @@ public class BankService {
                 b.setTransactionId(l.get(l.size()-1).getTransactionId()+1);
             }
             bankTransactionRepository.save(b);        }
-        else
-        {
+        else {
             throw new UserNotFoundException("User not found");
         }
+        notifyAfterCommit("Amount Withdraw successfully. Acno: "+acno+" Amount: "+ amount +", Current Balance: "+ exis.getBalance());
+
         userRepository.save(exis);
         return "Withdraw Successful Amount Inr : "+amount;
     }
+    @Transactional
     public String depositByphno(long phno, double amount)
     {
         Bank exis=userRepository.findByphno(phno);
@@ -157,7 +169,7 @@ public class BankService {
             else {
                 b.setTransactionId(l.get(l.size()-1).getTransactionId()+1);
             }
-            //bankKafkaProducer.sendMessage("Amount deposited successfully. Phone: "+phno+" Amount: "+ amount +", Current Balance: "+ b.getBalance());
+            notifyAfterCommit("Amount deposited successfully. Phone: "+phno+" Amount: "+ amount +", Current Balance: "+ b.getBalance());
             bankTransactionRepository.save(b);        }
         else
         {
@@ -166,6 +178,7 @@ public class BankService {
         userRepository.save(exis);
         return "Deposit Successful Amount Inr : "+amount;
     }
+    @Transactional
     public String depositByacno(long acno, double amount)
     {
         Bank exis=userRepository.findByacno(acno);
@@ -185,6 +198,7 @@ public class BankService {
             else {
                 b.setTransactionId(l.get(l.size()-1).getTransactionId()+1);
             }
+            notifyAfterCommit("Amount deposited successfully. Acno: "+acno+" Amount: "+ amount +", Current Balance: "+ b.getBalance());
             bankTransactionRepository.save(b);        }
         else
         {
@@ -193,6 +207,7 @@ public class BankService {
         userRepository.save(exis);
         return "Deposit Successful Amount Inr : "+amount;
     }
+    @Transactional
     public Bank updatePhno(long phno,long newphno)
     {
         List<Bank> l=userRepository.findAll();
@@ -210,8 +225,10 @@ public class BankService {
         {
             throw new UserNotFoundException("User not found");
         }
+        notifyAfterCommit("Mobile number updated old phno: "+phno+" New phno: "+newphno);
         return userRepository.save(exis);
     }
+    @Transactional
     public void deleteByPhno(long phno)
     {
         Bank exis=userRepository.findByphno(phno);
@@ -227,8 +244,47 @@ public class BankService {
             throw new UserNotFoundException("User not found");
         return new BankDto(b.getUserId(),b.getAcno(),(b.getLastName()+" "+b.getFirstName()).toUpperCase(),b.getAadharNumber(),b.getPhno(),b.getBalance());
     }
+    // Checked here, inside the transaction, against the balance we are about to change. The controller's earlier
+    // check can be stale by now; together with @Version this makes an overdraft impossible.
+    private void checkSufficientFunds(Bank account, double amount)
+    {
+        if(amount>account.getBalance())
+        {
+            throw new WithdrawException("Insufficient Funds");
+        }
+    }
+    // Kafka is told only AFTER the database commit succeeds, so a rolled-back payment never produces a
+    // "success" message, and a Kafka outage can never fail or undo a payment that already went through.
+    private void notifyAfterCommit(String message)
+    {
+        if(TransactionSynchronizationManager.isSynchronizationActive())
+        {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    sendNotification(message);
+                }
+            });
+        }
+        else
+        {
+            sendNotification(message);
+        }
+    }
+    private void sendNotification(String message)
+    {
+        try {
+            bankKafkaProducer.sendMessage(message);
+        }
+        catch(RuntimeException e) {
+            System.out.println("Kafka notification failed: "+e.getMessage());
+        }
+    }
     public List<BankTransaction> displayTransactionByPhno(long phno)
     {
-        return userRepository.findByphno(phno).getTransactions();
+        Bank b=userRepository.findByphno(phno);
+        if(b==null)
+            throw new UserNotFoundException("User not found");
+        return b.getTransactions();
     }
 }

@@ -7,6 +7,7 @@ import com.example.bankapplication.exception.DepositException;
 import com.example.bankapplication.exception.UserNotFoundException;
 import com.example.bankapplication.exception.WithdrawException;
 import com.example.bankapplication.service.BankService;
+import org.slf4j.ILoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,11 +24,21 @@ public class BankController {
     }
     @GetMapping("/getByphno/{phno}")
     public Bank getByPhno(@PathVariable("phno") long phno){
-        return bankService.findByphno(phno);
+        Bank exis=bankService.findByphno(phno);
+        if(exis==null)
+        {
+            throw new UserNotFoundException("User not found");
+        }
+        return exis;
     }
     @GetMapping("/getByacno/{acno}")
     public Bank getByAcno(@PathVariable  long acno){
-        return bankService.findByacno(acno);
+        Bank exis=bankService.findByacno(acno);
+        if(exis==null)
+        {
+            throw new UserNotFoundException("User not found");
+        }
+        return exis;
     }
     @PostMapping("/save")
     public Bank save(@RequestBody Bank user){
@@ -61,7 +72,7 @@ public class BankController {
         else if (balance > exis.getBalance()) {
                 throw new WithdrawException("Insufficient Funds");
             }
-            return bankService.withdrawByacno(acno, -balance);
+            return bankService.withdrawByacno(acno, balance);
     }
     @PutMapping("/depositByphno")
     public String depositByphno(@RequestParam long phno,@RequestParam double balance){

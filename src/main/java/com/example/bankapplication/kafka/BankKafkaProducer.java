@@ -17,7 +17,7 @@ public class BankKafkaProducer {
                     if (ex != null) {
                         System.out.println("Kafka send failed: " + ex.getMessage());
                     } else {
-                        System.out.println("Kafka message sent successfully");
+                        System.out.println("Kafka message sent successfully "+message);
                     }
                 });
     }

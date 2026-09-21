@@ -20,6 +20,7 @@ public class BankTransaction {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id;
+    @Column(unique = true)
     private long transactionId;
     @Column(name = "user_id")
     private long userId;
