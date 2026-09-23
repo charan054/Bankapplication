@@ -452,6 +452,25 @@ class BankApplicationIntegrationTest {
     }
 
     @Test
+    void updatePhno_invalidNewNumber_isRejected_regardlessOfCallerTier() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        String token = login(PHNO_A, PIN);
+
+        // trusted caller (admin key)
+        mockMvc.perform(asAdmin(put("/bank/updatephno")).param("phno", "" + PHNO_A).param("newphno", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Invalid mobile number"));
+
+        // self-service (the customer's own token)
+        mockMvc.perform(as(token, put("/bank/update-phone")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"newPhno\":0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Invalid mobile number"));
+
+        assertEquals(PHNO_A, bankRepository.findByphno(PHNO_A).getPhno());   // unchanged either way
+    }
+
+    @Test
     void deleteUser_removesUserAndTheirTransactions() throws Exception {
         createUser(PHNO_A, AADHAR_A);
         depositByPhno(PHNO_A, "500");
