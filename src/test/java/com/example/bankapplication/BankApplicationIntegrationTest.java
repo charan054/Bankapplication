@@ -691,6 +691,28 @@ class BankApplicationIntegrationTest {
         assertEquals(3, bankTransactionRepository.count());   // the deposit + exactly one debit + one credit
     }
 
+    // A reused key with a DIFFERENT amount is not a retry of the first request - it must be rejected, not silently
+    // reported as successful for money that was never actually moved as this second request asked.
+    @Test
+    void transfer_sameIdempotencyKeyWithADifferentAmount_isRejected_movesNoMoney() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        createUser(PHNO_B, AADHAR_B);
+        depositByPhno(PHNO_A, "1000");
+        String firstBody = "{\"payerPhno\":" + PHNO_A + ",\"receiverPhno\":" + PHNO_B
+                + ",\"amount\":250,\"idempotencyKey\":\"test-key-mismatch\"}";
+        String secondBody = "{\"payerPhno\":" + PHNO_A + ",\"receiverPhno\":" + PHNO_B
+                + ",\"amount\":500,\"idempotencyKey\":\"test-key-mismatch\"}";
+
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON).content(firstBody))
+                .andExpect(status().isOk());
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON).content(secondBody))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("This idempotency key was already used for a different transfer request."));
+
+        balanceShouldBe(PHNO_A, 750.0);   // only the first (250) transfer ever happened
+        balanceShouldBe(PHNO_B, 250.0);
+    }
+
     @Test
     void transfer_toUnknownReceiver_movesNoMoney() throws Exception {
         createUser(PHNO_A, AADHAR_A);
