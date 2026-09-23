@@ -3,7 +3,10 @@ package com.example.bankapplication.service;
 import com.example.bankapplication.entity.BankSession;
 import com.example.bankapplication.exception.UnauthorizedException;
 import com.example.bankapplication.repository.BankSessionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,6 +19,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Each customer login gets its own random token, stored only as a hash. Mirrors PhonepayService's SessionService,
@@ -23,6 +27,7 @@ import java.util.HexFormat;
  */
 @Service
 public class SessionService {
+    private static final Logger log = LoggerFactory.getLogger(SessionService.class);
 
     public record IssuedSession(String token, Instant expiresAt) {
     }
@@ -76,6 +81,17 @@ public class SessionService {
     public void end(String token) {
         if (token != null && !token.isBlank()) {
             sessions.deleteByTokenHash(hash(token));
+        }
+    }
+
+    // start()/authenticate() only ever clean up sessions belonging to the phone number they already happen to be
+    // touching. A customer who logs in once and never comes back would otherwise leave a session row forever.
+    @Scheduled(fixedRateString = "${bank.session.cleanup-interval-minutes:60}", timeUnit = TimeUnit.MINUTES)
+    @Transactional
+    public void purgeExpiredSessions() {
+        long removed = sessions.deleteByExpiresAtBefore(clock.instant());
+        if (removed > 0) {
+            log.info("Purged {} expired session(s)", removed);
         }
     }
 
