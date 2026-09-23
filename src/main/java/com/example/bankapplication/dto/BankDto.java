@@ -3,6 +3,8 @@ package com.example.bankapplication.dto;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import lombok.Data;
 
+import java.math.BigDecimal;
+
 @Data
 @JsonPropertyOrder({
         "userId",
@@ -18,8 +20,8 @@ public class BankDto {
     private String name;
     private long aadharNumber;
     private long phno;
-    private double balance;
-    public BankDto(int userId,long acno,String name,long aadharNumber,long phno,double balance)
+    private BigDecimal balance;
+    public BankDto(int userId,long acno,String name,long aadharNumber,long phno,BigDecimal balance)
     {
         this.userId = userId;
         this.acno = acno;

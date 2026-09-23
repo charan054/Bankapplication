@@ -24,6 +24,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -88,8 +89,20 @@ class BankServiceTest {
         b.setLastName("Kumar");
         b.setPhno(phno);
         b.setAadharNumber(aadhar);
-        b.setBalance(balance);
+        b.setBalance(BigDecimal.valueOf(balance));
         return b;
+    }
+
+    // BigDecimal.valueOf(double) parses via Double.toString, so money(500) prints "500.0" - exactly what the
+    // Inr messages below already expect, since these unit tests call BankService directly (bypassing the
+    // controller's requirePositiveAmount, which is what normalizes a real request to 2 decimal places).
+    private static BigDecimal money(double v) {
+        return BigDecimal.valueOf(v);
+    }
+
+    // BigDecimal.equals() is scale-sensitive ("100" != "100.00" even though numerically equal); compareTo() is not.
+    private static void assertMoney(double expected, BigDecimal actual) {
+        assertEquals(0, BigDecimal.valueOf(expected).compareTo(actual), () -> expected + " != " + actual);
     }
 
     private Bank bankWithPin(long acno, long phno, long aadhar, double balance) {
@@ -340,17 +353,17 @@ class BankServiceTest {
         when(userRepository.findByphno(9876543210L)).thenReturn(user);
         when(bankTransactionRepository.findAll()).thenReturn(List.of());
 
-        String result = bankService.depositByphno(9876543210L, 500);
+        String result = bankService.depositByphno(9876543210L, money(500));
 
         assertEquals("Deposit Successful Amount Inr : 500.0", result);
-        assertEquals(1500, user.getBalance());
+        assertMoney(1500, user.getBalance());
 
         ArgumentCaptor<BankTransaction> captor = ArgumentCaptor.forClass(BankTransaction.class);
         verify(bankTransactionRepository).save(captor.capture());
         BankTransaction txn = captor.getValue();
         assertEquals("Credit", txn.getAction());
-        assertEquals(500, txn.getAmount());
-        assertEquals(1500, txn.getBalance());
+        assertMoney(500, txn.getAmount());
+        assertMoney(1500, txn.getBalance());
         assertEquals(100000L, txn.getTransactionId());   // first ever transaction
 
         verify(bankKafkaProducer).sendMessage(contains("Amount deposited successfully"));
@@ -365,10 +378,10 @@ class BankServiceTest {
         when(bankTransactionRepository.findAll()).thenReturn(List.of());
         doThrow(new RuntimeException("kafka down")).when(bankKafkaProducer).sendMessage(any());
 
-        String result = bankService.depositByphno(9876543210L, 500);
+        String result = bankService.depositByphno(9876543210L, money(500));
 
         assertEquals("Deposit Successful Amount Inr : 500.0", result);
-        assertEquals(1500, user.getBalance());
+        assertMoney(1500, user.getBalance());
     }
 
     @Test
@@ -377,9 +390,9 @@ class BankServiceTest {
         when(userRepository.findByacno(1000000000L)).thenReturn(user);
         when(bankTransactionRepository.findAll()).thenReturn(List.of(txnWithId(100000), txnWithId(100007)));
 
-        bankService.depositByacno(1000000000L, 50);
+        bankService.depositByacno(1000000000L, money(50));
 
-        assertEquals(250, user.getBalance());
+        assertMoney(250, user.getBalance());
         ArgumentCaptor<BankTransaction> captor = ArgumentCaptor.forClass(BankTransaction.class);
         verify(bankTransactionRepository).save(captor.capture());
         assertEquals(100008L, captor.getValue().getTransactionId());   // last id + 1
@@ -390,7 +403,7 @@ class BankServiceTest {
     void depositByphno_unknownUser_throwsUserNotFound_andSendsNoNotification() {
         when(userRepository.findByphno(9999999999L)).thenReturn(null);
 
-        assertThrows(UserNotFoundException.class, () -> bankService.depositByphno(9999999999L, 100));
+        assertThrows(UserNotFoundException.class, () -> bankService.depositByphno(9999999999L, money(100)));
 
         verifyNoInteractions(bankKafkaProducer);
         verify(userRepository, never()).save(any());
@@ -404,16 +417,16 @@ class BankServiceTest {
         when(userRepository.findByphno(9876543210L)).thenReturn(user);
         when(bankTransactionRepository.findAll()).thenReturn(List.of());
 
-        String result = bankService.withdrawByphno(9876543210L, 400);
+        String result = bankService.withdrawByphno(9876543210L, money(400));
 
         assertEquals("Withdraw Successful Amount Inr : 400.0", result);
-        assertEquals(600, user.getBalance());
+        assertMoney(600, user.getBalance());
 
         ArgumentCaptor<BankTransaction> captor = ArgumentCaptor.forClass(BankTransaction.class);
         verify(bankTransactionRepository).save(captor.capture());
         assertEquals("Debit", captor.getValue().getAction());
-        assertEquals(400, captor.getValue().getAmount());
-        assertEquals(600, captor.getValue().getBalance());
+        assertMoney(400, captor.getValue().getAmount());
+        assertMoney(600, captor.getValue().getBalance());
 
         verify(bankKafkaProducer).sendMessage(contains("Amount Withdraw successfully"));
         verify(userRepository).save(user);
@@ -425,9 +438,9 @@ class BankServiceTest {
         when(userRepository.findByacno(1000000000L)).thenReturn(user);
         when(bankTransactionRepository.findAll()).thenReturn(List.of());
 
-        bankService.withdrawByacno(1000000000L, 300);
+        bankService.withdrawByacno(1000000000L, money(300));
 
-        assertEquals(700, user.getBalance());
+        assertMoney(700, user.getBalance());
     }
 
     // The balance check must live INSIDE the service transaction; a check made earlier can be stale by the time we subtract.
@@ -436,10 +449,10 @@ class BankServiceTest {
         Bank user = bank(1000000000L, 9876543210L, 123456789012L, 100);
         when(userRepository.findByphno(9876543210L)).thenReturn(user);
 
-        WithdrawException ex = assertThrows(WithdrawException.class, () -> bankService.withdrawByphno(9876543210L, 100.01));
+        WithdrawException ex = assertThrows(WithdrawException.class, () -> bankService.withdrawByphno(9876543210L, money(100.01)));
 
         assertEquals("Insufficient Funds", ex.getMessage());
-        assertEquals(100, user.getBalance());
+        assertMoney(100, user.getBalance());
         verifyNoInteractions(bankTransactionRepository);
         verifyNoInteractions(bankKafkaProducer);
     }
@@ -449,9 +462,9 @@ class BankServiceTest {
         Bank user = bank(1000000000L, 9876543210L, 123456789012L, 100);
         when(userRepository.findByacno(1000000000L)).thenReturn(user);
 
-        assertThrows(WithdrawException.class, () -> bankService.withdrawByacno(1000000000L, 500));
+        assertThrows(WithdrawException.class, () -> bankService.withdrawByacno(1000000000L, money(500)));
 
-        assertEquals(100, user.getBalance());
+        assertMoney(100, user.getBalance());
         verifyNoInteractions(bankTransactionRepository);
         verifyNoInteractions(bankKafkaProducer);
     }
@@ -462,16 +475,16 @@ class BankServiceTest {
         when(userRepository.findByphno(9876543210L)).thenReturn(user);
         when(bankTransactionRepository.findAll()).thenReturn(List.of());
 
-        bankService.withdrawByphno(9876543210L, 250);
+        bankService.withdrawByphno(9876543210L, money(250));
 
-        assertEquals(0, user.getBalance());
+        assertMoney(0, user.getBalance());
     }
 
     @Test
     void withdrawByphno_unknownUser_throwsUserNotFound() {
         when(userRepository.findByphno(9999999999L)).thenReturn(null);
 
-        assertThrows(UserNotFoundException.class, () -> bankService.withdrawByphno(9999999999L, 100));
+        assertThrows(UserNotFoundException.class, () -> bankService.withdrawByphno(9999999999L, money(100)));
 
         verifyNoInteractions(bankKafkaProducer);
         verifyNoInteractions(bankTransactionRepository);
@@ -524,7 +537,7 @@ class BankServiceTest {
         var dto = bankService.displayUserByPhno(9876543210L);
 
         assertEquals("KUMAR CHARAN", dto.getName());
-        assertEquals(750, dto.getBalance());
+        assertMoney(750, dto.getBalance());
         assertEquals(1000000000L, dto.getAcno());
     }
 

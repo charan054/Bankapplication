@@ -1,4 +1,6 @@
 package com.example.bankapplication.dto;
 
-public record AmountRequest(double amount) {
+import java.math.BigDecimal;
+
+public record AmountRequest(BigDecimal amount) {
 }
