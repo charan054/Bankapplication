@@ -137,7 +137,7 @@ class BankServiceTest {
 
     @Test
     void register_firstUser_getsAccountNumber1000000000() {
-        when(userRepository.findAll()).thenReturn(List.of());
+        when(userRepository.findMaxAcno()).thenReturn(null);   // no users yet
         when(userRepository.save(any(Bank.class))).thenAnswer(inv -> inv.getArgument(0));
         when(passwordEncoder.encode("1234")).thenReturn(STORED_HASH);
 
@@ -149,7 +149,6 @@ class BankServiceTest {
 
     @Test
     void register_hashesThePin_neverStoresItInPlainText() {
-        when(userRepository.findAll()).thenReturn(List.of());
         when(userRepository.save(any(Bank.class))).thenAnswer(inv -> inv.getArgument(0));
         when(passwordEncoder.encode("1234")).thenReturn(STORED_HASH);
 
@@ -161,8 +160,7 @@ class BankServiceTest {
 
     @Test
     void register_nextUser_getsLastAccountNumberPlusOne() {
-        Bank existing = bank(1000000005L, 9000000001L, 111111111111L, 0);
-        when(userRepository.findAll()).thenReturn(List.of(existing));
+        when(userRepository.findMaxAcno()).thenReturn(1000000005L);
         when(userRepository.save(any(Bank.class))).thenAnswer(inv -> inv.getArgument(0));
         when(passwordEncoder.encode(any())).thenReturn(STORED_HASH);
 
@@ -201,8 +199,7 @@ class BankServiceTest {
 
     @Test
     void register_duplicateMobileNumber_throwsUserExist() {
-        Bank existing = bank(1000000000L, 9876543210L, 111111111111L, 0);
-        when(userRepository.findAll()).thenReturn(List.of(existing));
+        when(userRepository.existsByPhno(9876543210L)).thenReturn(true);
 
         UserExistException ex = assertThrows(UserExistException.class,
                 () -> bankService.register(registerRequest(9876543210L, 222222222222L)));
@@ -213,8 +210,7 @@ class BankServiceTest {
 
     @Test
     void register_duplicateAadhar_throwsUserExist() {
-        Bank existing = bank(1000000000L, 9000000001L, 123456789012L, 0);
-        when(userRepository.findAll()).thenReturn(List.of(existing));
+        when(userRepository.existsByAadharNumber(123456789012L)).thenReturn(true);
 
         UserExistException ex = assertThrows(UserExistException.class,
                 () -> bankService.register(registerRequest(9876543210L, 123456789012L)));
@@ -363,7 +359,7 @@ class BankServiceTest {
     void depositByphno_increasesBalance_recordsCreditTransaction_andNotifiesKafka() {
         Bank user = bank(1000000000L, 9876543210L, 123456789012L, 1000);
         when(userRepository.findByphno(9876543210L)).thenReturn(user);
-        when(bankTransactionRepository.findAll()).thenReturn(List.of());
+        when(bankTransactionRepository.findMaxTransactionId()).thenReturn(null);   // no transactions yet
 
         String result = bankService.depositByphno(9876543210L, money(500));
 
@@ -387,7 +383,6 @@ class BankServiceTest {
     void depositByphno_kafkaFailure_doesNotFailTheDeposit() {
         Bank user = bank(1000000000L, 9876543210L, 123456789012L, 1000);
         when(userRepository.findByphno(9876543210L)).thenReturn(user);
-        when(bankTransactionRepository.findAll()).thenReturn(List.of());
         doThrow(new RuntimeException("kafka down")).when(bankKafkaProducer).sendMessage(any());
 
         String result = bankService.depositByphno(9876543210L, money(500));
@@ -400,7 +395,7 @@ class BankServiceTest {
     void depositByacno_increasesBalance_andUsesNextTransactionId() {
         Bank user = bank(1000000000L, 9876543210L, 123456789012L, 200);
         when(userRepository.findByacno(1000000000L)).thenReturn(user);
-        when(bankTransactionRepository.findAll()).thenReturn(List.of(txnWithId(100000), txnWithId(100007)));
+        when(bankTransactionRepository.findMaxTransactionId()).thenReturn(100007L);
 
         bankService.depositByacno(1000000000L, money(50));
 
@@ -427,7 +422,6 @@ class BankServiceTest {
     void withdrawByphno_decreasesBalance_recordsDebitTransaction_andNotifiesKafka() {
         Bank user = bank(1000000000L, 9876543210L, 123456789012L, 1000);
         when(userRepository.findByphno(9876543210L)).thenReturn(user);
-        when(bankTransactionRepository.findAll()).thenReturn(List.of());
 
         String result = bankService.withdrawByphno(9876543210L, money(400));
 
@@ -448,7 +442,6 @@ class BankServiceTest {
     void withdrawByacno_decreasesBalance_whenGivenPositiveAmount() {
         Bank user = bank(1000000000L, 9876543210L, 123456789012L, 1000);
         when(userRepository.findByacno(1000000000L)).thenReturn(user);
-        when(bankTransactionRepository.findAll()).thenReturn(List.of());
 
         bankService.withdrawByacno(1000000000L, money(300));
 
@@ -485,7 +478,6 @@ class BankServiceTest {
     void withdrawByphno_exactBalance_leavesZero() {
         Bank user = bank(1000000000L, 9876543210L, 123456789012L, 250);
         when(userRepository.findByphno(9876543210L)).thenReturn(user);
-        when(bankTransactionRepository.findAll()).thenReturn(List.of());
 
         bankService.withdrawByphno(9876543210L, money(250));
 
@@ -511,7 +503,6 @@ class BankServiceTest {
         when(userRepository.findByphno(9876543210L)).thenReturn(payer);
         when(userRepository.findByphno(9123456789L)).thenReturn(receiver);
         when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
-        when(bankTransactionRepository.findAll()).thenReturn(List.of());
 
         String result = bankService.transfer(9876543210L, 9123456789L, money(250), "key-1");
 
@@ -527,7 +518,7 @@ class BankServiceTest {
         when(userRepository.findByphno(9876543210L)).thenReturn(payer);
         when(userRepository.findByphno(9123456789L)).thenReturn(receiver);
         when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
-        when(bankTransactionRepository.findAll()).thenReturn(List.of(txnWithId(100005)));
+        when(bankTransactionRepository.findMaxTransactionId()).thenReturn(100005L);
 
         bankService.transfer(9876543210L, 9123456789L, money(250), "key-1");
 
@@ -616,7 +607,6 @@ class BankServiceTest {
     @Test
     void updatePhno_success_changesNumber_andNotifiesKafka() {
         Bank user = bank(1000000000L, 9876543210L, 123456789012L, 0);
-        when(userRepository.findAll()).thenReturn(List.of(user));
         when(userRepository.findByphno(9876543210L)).thenReturn(user);
         when(userRepository.save(user)).thenReturn(user);
 
@@ -628,9 +618,7 @@ class BankServiceTest {
 
     @Test
     void updatePhno_newNumberAlreadyTaken_throwsUserExist() {
-        Bank a = bank(1000000000L, 9876543210L, 111111111111L, 0);
-        Bank b = bank(1000000001L, 9123456789L, 222222222222L, 0);
-        when(userRepository.findAll()).thenReturn(List.of(a, b));
+        when(userRepository.existsByPhno(9123456789L)).thenReturn(true);
 
         assertThrows(UserExistException.class, () -> bankService.updatePhno(9876543210L, 9123456789L));
 

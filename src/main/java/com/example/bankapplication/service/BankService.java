@@ -173,27 +173,19 @@ public class BankService {
                 throw new MobileNumberException("Invalid AADHAR NUMBER");
             }
         }
-        List<Bank> l=userRepository.findAll();
-        for(Bank u:l)
+        if(userRepository.existsByPhno(user.getPhno()))
         {
-            if(u.getPhno()==user.getPhno())
-            {
-                throw new UserExistException("mobile number already exist");
-            }
-            if(u.getAadharNumber()==user.getAadharNumber())
-            {
-                throw new UserExistException("AADHAR NUMBER already exist");
-            }
+            throw new UserExistException("mobile number already exist");
+        }
+        if(userRepository.existsByAadharNumber(user.getAadharNumber()))
+        {
+            throw new UserExistException("AADHAR NUMBER already exist");
         }
 
         user.setPinHash(passwordEncoder.encode(request.pin()));
 
-        if(l.size()==0) {
-            user.setAcno(1000000000);
-            return userRepository.save(user);
-        }
-        long acno=l.get(l.size()-1).getAcno();
-        user.setAcno(acno+1);
+        Long maxAcno = userRepository.findMaxAcno();
+        user.setAcno(maxAcno == null ? 1000000000 : maxAcno + 1);
         return userRepository.save(user);
     }
 
@@ -211,13 +203,7 @@ public class BankService {
             b.setAction("Debit");
             b.setBalance(exis.getBalance());
             b.setUserId(exis.getUserId());
-            List<BankTransaction>l=bankTransactionRepository.findAll();
-            if(l.size()==0) {
-                b.setTransactionId(100000);
-            }
-            else {
-                b.setTransactionId(l.get(l.size()-1).getTransactionId()+1);
-            }
+            b.setTransactionId(nextTransactionId());
             bankTransactionRepository.save(b);
         }
         else
@@ -242,13 +228,7 @@ public class BankService {
             b.setAction("Debit");
             b.setBalance(exis.getBalance());
             b.setUserId(exis.getUserId());
-            List<BankTransaction>l=bankTransactionRepository.findAll();
-            if(l.size()==0) {
-                b.setTransactionId(100000);
-            }
-            else {
-                b.setTransactionId(l.get(l.size()-1).getTransactionId()+1);
-            }
+            b.setTransactionId(nextTransactionId());
             bankTransactionRepository.save(b);        }
         else {
             throw new UserNotFoundException("User not found");
@@ -271,13 +251,7 @@ public class BankService {
             b.setAction("Credit");
             b.setBalance(exis.getBalance());
             b.setUserId(exis.getUserId());
-            List<BankTransaction>l=bankTransactionRepository.findAll();
-            if(l.size()==0) {
-                b.setTransactionId(100000);
-            }
-            else {
-                b.setTransactionId(l.get(l.size()-1).getTransactionId()+1);
-            }
+            b.setTransactionId(nextTransactionId());
             notifyAfterCommit("Amount deposited successfully. Phone: "+phno+" Amount: "+ amount +", Current Balance: "+ b.getBalance());
             bankTransactionRepository.save(b);        }
         else
@@ -300,13 +274,7 @@ public class BankService {
             b.setAction("Credit");
             b.setBalance(exis.getBalance());
             b.setUserId(exis.getUserId());
-            List<BankTransaction>l=bankTransactionRepository.findAll();
-            if(l.size()==0) {
-                b.setTransactionId(100000);
-            }
-            else {
-                b.setTransactionId(l.get(l.size()-1).getTransactionId()+1);
-            }
+            b.setTransactionId(nextTransactionId());
             notifyAfterCommit("Amount deposited successfully. Acno: "+acno+" Amount: "+ amount +", Current Balance: "+ b.getBalance());
             bankTransactionRepository.save(b);        }
         else
@@ -350,10 +318,8 @@ public class BankService {
         payer.setBalance(payer.getBalance().subtract(amount));
         receiver.setBalance(receiver.getBalance().add(amount));
 
-        List<BankTransaction> existingTxns = bankTransactionRepository.findAll();
-        long nextId = existingTxns.isEmpty() ? 100000 : existingTxns.get(existingTxns.size() - 1).getTransactionId() + 1;
-        long debitId = nextId;
-        long creditId = nextId + 1;
+        long debitId = nextTransactionId();
+        long creditId = debitId + 1;
 
         BankTransaction debit = new BankTransaction();
         debit.setTransactionId(debitId);
@@ -395,11 +361,9 @@ public class BankService {
     @Transactional
     public Bank updatePhno(long phno,long newphno)
     {
-        List<Bank> l=userRepository.findAll();
-        for(Bank u:l)
+        if(userRepository.existsByPhno(newphno))
         {
-            if(u.getPhno()==newphno)
-                throw new UserExistException("Phone number already exist");
+            throw new UserExistException("Phone number already exist");
         }
         Bank exis=userRepository.findByphno(phno);
         if(exis!=null)
@@ -437,6 +401,14 @@ public class BankService {
         {
             throw new WithdrawException("Insufficient Funds");
         }
+    }
+    // A MAX() query instead of loading every transaction to find the last one. Two concurrent calls can still
+    // compute the same id; the unique constraint on transactionId catches that and the caller gets a 409
+    // (GlobalExceptionHandler) telling them to retry, the same as any other write conflict in this app.
+    private long nextTransactionId()
+    {
+        Long highest = bankTransactionRepository.findMaxTransactionId();
+        return highest == null ? 100000 : highest + 1;
     }
     // Kafka is told only AFTER the database commit succeeds, so a rolled-back payment never produces a
     // "success" message, and a Kafka outage can never fail or undo a payment that already went through.
