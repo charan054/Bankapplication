@@ -1,8 +1,13 @@
 package com.example.bankapplication.service;
 
+import com.example.bankapplication.dto.LoginResponse;
+import com.example.bankapplication.dto.RegisterRequest;
 import com.example.bankapplication.entity.Bank;
 import com.example.bankapplication.entity.BankTransaction;
+import com.example.bankapplication.exception.AccountLockedException;
+import com.example.bankapplication.exception.InvalidCredentialsException;
 import com.example.bankapplication.exception.MobileNumberException;
+import com.example.bankapplication.exception.PinNotSetException;
 import com.example.bankapplication.exception.UserExistException;
 import com.example.bankapplication.exception.UserNotFoundException;
 import com.example.bankapplication.exception.WithdrawException;
@@ -17,13 +22,19 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -33,15 +44,39 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class BankServiceTest {
 
+    private static final Instant NOW = Instant.parse("2026-09-23T10:00:00Z");
+    private static final String STORED_HASH = "bcrypt-hash-of-1234";
+
     @Mock
     private BankRepository userRepository;
     @Mock
     private BankTransactionRepository bankTransactionRepository;
     @Mock
     private BankKafkaProducer bankKafkaProducer;
+    @Mock
+    private PasswordEncoder passwordEncoder;
+    @Mock
+    private SessionService sessionService;
 
     @InjectMocks
     private BankService bankService;
+
+    /** A clock the test can move, to expire a lockout without waiting. */
+    private static class MovableClock extends Clock {
+        Instant now = NOW;
+        @Override public ZoneOffset getZone() { return ZoneOffset.UTC; }
+        @Override public Clock withZone(java.time.ZoneId zone) { return this; }
+        @Override public Instant instant() { return now; }
+    }
+
+    private final MovableClock clock = new MovableClock();
+
+    @org.junit.jupiter.api.BeforeEach
+    void wireClock() {
+        // BankService's @Autowired Clock field is set here so tests can move time (MockitoExtension's field
+        // injection has already run by @BeforeEach time, so this simply replaces the mock Clock with a fake one).
+        org.springframework.test.util.ReflectionTestUtils.setField(bankService, "clock", clock);
+    }
 
     // ---------- helpers ----------
 
@@ -57,33 +92,56 @@ class BankServiceTest {
         return b;
     }
 
+    private Bank bankWithPin(long acno, long phno, long aadhar, double balance) {
+        Bank b = bank(acno, phno, aadhar, balance);
+        b.setPinHash(STORED_HASH);
+        return b;
+    }
+
     private BankTransaction txnWithId(long transactionId) {
         BankTransaction t = new BankTransaction();
         t.setTransactionId(transactionId);
         return t;
     }
 
-    // ---------- save(): account creation ----------
+    private RegisterRequest registerRequest(long phno, long aadhar) {
+        return new RegisterRequest("Charan", "Kumar", aadhar, phno, "1234");
+    }
+
+    // ---------- register(): account creation ----------
 
     @Test
-    void save_firstUser_getsAccountNumber1000000000() {
-        Bank newUser = bank(0, 9876543210L, 123456789012L, 0);
+    void register_firstUser_getsAccountNumber1000000000() {
         when(userRepository.findAll()).thenReturn(List.of());
         when(userRepository.save(any(Bank.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(passwordEncoder.encode("1234")).thenReturn(STORED_HASH);
 
-        Bank saved = bankService.save(newUser);
+        Bank saved = bankService.register(registerRequest(9876543210L, 123456789012L));
 
         assertEquals(1000000000L, saved.getAcno());
+        assertEquals(STORED_HASH, saved.getPinHash());
     }
 
     @Test
-    void save_nextUser_getsLastAccountNumberPlusOne() {
+    void register_hashesThePin_neverStoresItInPlainText() {
+        when(userRepository.findAll()).thenReturn(List.of());
+        when(userRepository.save(any(Bank.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(passwordEncoder.encode("1234")).thenReturn(STORED_HASH);
+
+        Bank saved = bankService.register(registerRequest(9876543210L, 123456789012L));
+
+        verify(passwordEncoder).encode("1234");
+        assertEquals(STORED_HASH, saved.getPinHash());
+    }
+
+    @Test
+    void register_nextUser_getsLastAccountNumberPlusOne() {
         Bank existing = bank(1000000005L, 9000000001L, 111111111111L, 0);
-        Bank newUser = bank(0, 9876543210L, 123456789012L, 0);
         when(userRepository.findAll()).thenReturn(List.of(existing));
         when(userRepository.save(any(Bank.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(passwordEncoder.encode(any())).thenReturn(STORED_HASH);
 
-        Bank saved = bankService.save(newUser);
+        Bank saved = bankService.register(registerRequest(9876543210L, 123456789012L));
 
         assertEquals(1000000006L, saved.getAcno());
     }
@@ -95,10 +153,9 @@ class BankServiceTest {
             5876543210L,     // 10 digits but starts with 5 (must be 6-9)
             1234567890L      // 10 digits but starts with 1
     })
-    void save_invalidMobileNumber_throwsAndDoesNotSave(long badPhone) {
-        Bank newUser = bank(0, badPhone, 123456789012L, 0);
-
-        MobileNumberException ex = assertThrows(MobileNumberException.class, () -> bankService.save(newUser));
+    void register_invalidMobileNumber_throwsAndDoesNotSave(long badPhone) {
+        MobileNumberException ex = assertThrows(MobileNumberException.class,
+                () -> bankService.register(registerRequest(badPhone, 123456789012L)));
 
         assertEquals("Invalid mobile number", ex.getMessage());
         verifyNoInteractions(userRepository);
@@ -109,37 +166,170 @@ class BankServiceTest {
             12345678901L,     // 11 digits
             1234567890123L    // 13 digits
     })
-    void save_invalidAadhar_throwsAndDoesNotSave(long badAadhar) {
-        Bank newUser = bank(0, 9876543210L, badAadhar, 0);
-
-        MobileNumberException ex = assertThrows(MobileNumberException.class, () -> bankService.save(newUser));
+    void register_invalidAadhar_throwsAndDoesNotSave(long badAadhar) {
+        MobileNumberException ex = assertThrows(MobileNumberException.class,
+                () -> bankService.register(registerRequest(9876543210L, badAadhar)));
 
         assertEquals("Invalid AADHAR NUMBER", ex.getMessage());
         verifyNoInteractions(userRepository);
     }
 
     @Test
-    void save_duplicateMobileNumber_throwsUserExist() {
+    void register_duplicateMobileNumber_throwsUserExist() {
         Bank existing = bank(1000000000L, 9876543210L, 111111111111L, 0);
-        Bank newUser = bank(0, 9876543210L, 222222222222L, 0);
         when(userRepository.findAll()).thenReturn(List.of(existing));
 
-        UserExistException ex = assertThrows(UserExistException.class, () -> bankService.save(newUser));
+        UserExistException ex = assertThrows(UserExistException.class,
+                () -> bankService.register(registerRequest(9876543210L, 222222222222L)));
 
         assertEquals("mobile number already exist", ex.getMessage());
         verify(userRepository, never()).save(any());
     }
 
     @Test
-    void save_duplicateAadhar_throwsUserExist() {
+    void register_duplicateAadhar_throwsUserExist() {
         Bank existing = bank(1000000000L, 9000000001L, 123456789012L, 0);
-        Bank newUser = bank(0, 9876543210L, 123456789012L, 0);
         when(userRepository.findAll()).thenReturn(List.of(existing));
 
-        UserExistException ex = assertThrows(UserExistException.class, () -> bankService.save(newUser));
+        UserExistException ex = assertThrows(UserExistException.class,
+                () -> bankService.register(registerRequest(9876543210L, 123456789012L)));
 
         assertEquals("AADHAR NUMBER already exist", ex.getMessage());
         verify(userRepository, never()).save(any());
+    }
+
+    // ---------- login ----------
+
+    @Test
+    void login_correctPin_startsASession() {
+        Bank user = bankWithPin(1000000000L, 9876543210L, 123456789012L, 500);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(passwordEncoder.matches("1234", STORED_HASH)).thenReturn(true);
+        when(sessionService.start(9876543210L)).thenReturn(new SessionService.IssuedSession("tok", NOW.plusSeconds(1800)));
+
+        LoginResponse response = bankService.login(9876543210L, "1234");
+
+        assertEquals("tok", response.token());
+        assertEquals(9876543210L, response.phno());
+        assertEquals("KUMAR CHARAN", response.name());
+    }
+
+    @Test
+    void login_correctPin_resetsAnyPriorFailedAttempts() {
+        Bank user = bankWithPin(1000000000L, 9876543210L, 123456789012L, 500);
+        user.setFailedLoginAttempts(3);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(passwordEncoder.matches("1234", STORED_HASH)).thenReturn(true);
+        when(sessionService.start(9876543210L)).thenReturn(new SessionService.IssuedSession("tok", NOW));
+
+        bankService.login(9876543210L, "1234");
+
+        assertEquals(0, user.getFailedLoginAttempts());
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    void login_unknownPhoneNumber_isGenericAndStartsNoSession() {
+        when(userRepository.findByphno(9999999999L)).thenReturn(null);
+
+        InvalidCredentialsException ex = assertThrows(InvalidCredentialsException.class,
+                () -> bankService.login(9999999999L, "1234"));
+
+        assertEquals("Invalid phone number or PIN", ex.getMessage());
+        verifyNoInteractions(sessionService);
+    }
+
+    @Test
+    void login_wrongPin_isTheSameGenericMessageAsAnUnknownNumber() {
+        Bank user = bankWithPin(1000000000L, 9876543210L, 123456789012L, 500);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(passwordEncoder.matches("0000", STORED_HASH)).thenReturn(false);
+
+        InvalidCredentialsException ex = assertThrows(InvalidCredentialsException.class,
+                () -> bankService.login(9876543210L, "0000"));
+
+        assertEquals("Invalid phone number or PIN", ex.getMessage());
+        verifyNoInteractions(sessionService);
+    }
+
+    @Test
+    void login_accountWithNoPinSet_isRejectedDistinctly() {
+        Bank user = bank(1000000000L, 9876543210L, 123456789012L, 500);   // no PIN set
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+
+        assertThrows(PinNotSetException.class, () -> bankService.login(9876543210L, "1234"));
+
+        verifyNoInteractions(sessionService, passwordEncoder);
+    }
+
+    @Test
+    void login_wrongPinRepeatedly_locksTheAccountAfterFiveAttempts() {
+        Bank user = bankWithPin(1000000000L, 9876543210L, 123456789012L, 500);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(passwordEncoder.matches("0000", STORED_HASH)).thenReturn(false);
+
+        for (int i = 1; i <= 5; i++) {
+            assertThrows(InvalidCredentialsException.class, () -> bankService.login(9876543210L, "0000"));
+        }
+
+        assertEquals(5, user.getFailedLoginAttempts());
+        assertEquals(NOW.plus(Duration.ofMinutes(15)), user.getLockedUntil());
+    }
+
+    @Test
+    void login_whileLocked_isRejectedEvenWithTheCorrectPin() {
+        Bank user = bankWithPin(1000000000L, 9876543210L, 123456789012L, 500);
+        user.setLockedUntil(NOW.plus(Duration.ofMinutes(10)));
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+
+        assertThrows(AccountLockedException.class, () -> bankService.login(9876543210L, "1234"));
+
+        verifyNoInteractions(passwordEncoder, sessionService);
+    }
+
+    @Test
+    void login_afterTheLockoutExpires_worksAgain() {
+        Bank user = bankWithPin(1000000000L, 9876543210L, 123456789012L, 500);
+        user.setLockedUntil(NOW.minusSeconds(1));   // lock already expired
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(passwordEncoder.matches("1234", STORED_HASH)).thenReturn(true);
+        when(sessionService.start(9876543210L)).thenReturn(new SessionService.IssuedSession("tok", NOW));
+
+        LoginResponse response = bankService.login(9876543210L, "1234");
+
+        assertEquals("tok", response.token());
+    }
+
+    @Test
+    void logout_endsTheSession() {
+        bankService.logout("tok");
+
+        verify(sessionService).end("tok");
+    }
+
+    // ---------- admin: set/reset PIN ----------
+
+    @Test
+    void setPin_hashesAndStoresTheNewPin_andClearsAnyLockout() {
+        Bank user = bankWithPin(1000000000L, 9876543210L, 123456789012L, 500);
+        user.setFailedLoginAttempts(4);
+        user.setLockedUntil(NOW.plus(Duration.ofMinutes(5)));
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(passwordEncoder.encode("5678")).thenReturn("new-hash");
+
+        bankService.setPin(9876543210L, "5678");
+
+        assertEquals("new-hash", user.getPinHash());
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertEquals(null, user.getLockedUntil());
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    void setPin_unknownUser_throwsUserNotFound() {
+        when(userRepository.findByphno(9999999999L)).thenReturn(null);
+
+        assertThrows(UserNotFoundException.class, () -> bankService.setPin(9999999999L, "5678"));
     }
 
     // ---------- deposit ----------
