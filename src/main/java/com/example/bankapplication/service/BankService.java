@@ -199,6 +199,7 @@ public class BankService {
             b.setBalance(exis.getBalance());
             b.setUserId(exis.getUserId());
             b.setTransactionId(nextTransactionId());
+            b.setCreatedAt(clock.instant());
             bankTransactionRepository.save(b);
         }
         else
@@ -224,6 +225,7 @@ public class BankService {
             b.setBalance(exis.getBalance());
             b.setUserId(exis.getUserId());
             b.setTransactionId(nextTransactionId());
+            b.setCreatedAt(clock.instant());
             bankTransactionRepository.save(b);        }
         else {
             throw new UserNotFoundException("User not found");
@@ -247,6 +249,7 @@ public class BankService {
             b.setBalance(exis.getBalance());
             b.setUserId(exis.getUserId());
             b.setTransactionId(nextTransactionId());
+            b.setCreatedAt(clock.instant());
             notifyAfterCommit("Amount deposited successfully. Phone: "+phno+" Amount: "+ amount +", Current Balance: "+ b.getBalance());
             bankTransactionRepository.save(b);        }
         else
@@ -270,6 +273,7 @@ public class BankService {
             b.setBalance(exis.getBalance());
             b.setUserId(exis.getUserId());
             b.setTransactionId(nextTransactionId());
+            b.setCreatedAt(clock.instant());
             notifyAfterCommit("Amount deposited successfully. Acno: "+acno+" Amount: "+ amount +", Current Balance: "+ b.getBalance());
             bankTransactionRepository.save(b);        }
         else
@@ -315,6 +319,7 @@ public class BankService {
 
         long debitId = nextTransactionId();
         long creditId = debitId + 1;
+        Instant now = clock.instant();
 
         BankTransaction debit = new BankTransaction();
         debit.setTransactionId(debitId);
@@ -323,6 +328,7 @@ public class BankService {
         debit.setAction("Debit");
         debit.setAmount(amount);
         debit.setBalance(payer.getBalance());
+        debit.setCreatedAt(now);
         bankTransactionRepository.save(debit);
 
         BankTransaction credit = new BankTransaction();
@@ -332,6 +338,7 @@ public class BankService {
         credit.setAction("Credit");
         credit.setAmount(amount);
         credit.setBalance(receiver.getBalance());
+        credit.setCreatedAt(now);
         bankTransactionRepository.save(credit);
 
         userRepository.save(payer);
@@ -445,12 +452,16 @@ public class BankService {
             System.out.println("Kafka notification failed: "+e.getMessage());
         }
     }
-    public PageResponse<BankTransaction> displayTransactionByPhno(long phno, int page, int size)
+    public PageResponse<BankTransaction> displayTransactionByPhno(long phno, int page, int size, Instant from, Instant to)
     {
+        if (from != null && to != null && from.isAfter(to))
+        {
+            throw new InvalidRequestException("'from' must not be after 'to'.");
+        }
         Bank b=userRepository.findByphno(phno);
         if(b==null)
             throw new UserNotFoundException("User not found");
-        return PageResponse.of(bankTransactionRepository.findByPhno(phno, pageable(page, size, Sort.by("id").ascending())));
+        return PageResponse.of(bankTransactionRepository.findByPhno(phno, from, to, pageable(page, size, Sort.by("id").ascending())));
     }
 
     // page/size come straight from a query parameter, so out-of-range values are a caller mistake, not a crash.

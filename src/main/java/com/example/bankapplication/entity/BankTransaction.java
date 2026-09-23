@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 @Entity
 @Table(name="BankTransactions")
@@ -16,7 +17,8 @@ import java.math.BigDecimal;
         "phno",
         "action",
         "amount",
-        "Balance"
+        "Balance",
+        "createdAt"
 })
 public class BankTransaction {
     @Id
@@ -32,4 +34,7 @@ public class BankTransaction {
     private String action;
     @Column(precision = 19, scale = 2)
     private BigDecimal balance;
+    // Nullable: rows written before this field existed have none. LegacyTransactionTimestampBackfill fills them
+    // in once, on startup, since there is no real record of when they actually happened.
+    private Instant createdAt;
 }
