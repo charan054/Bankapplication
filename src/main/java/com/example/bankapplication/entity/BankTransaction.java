@@ -8,7 +8,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 @Entity
-@Table(name="BankTransactions")
+@Table(name="BankTransactions", indexes = @Index(name = "idx_banktransactions_phno", columnList = "phno"))
 @Data
 @JsonPropertyOrder({
         "id",
