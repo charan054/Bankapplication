@@ -625,6 +625,21 @@ class BankServiceTest {
         verify(userRepository, never()).save(any());
     }
 
+    @ParameterizedTest
+    @ValueSource(longs = {
+            987654321L,      // 9 digits  -> too short
+            98765432101L,    // 11 digits -> too long
+            5876543210L,     // 10 digits but starts with 5 (must be 6-9)
+            0L                // an admin call could otherwise silently set this
+    })
+    void updatePhno_invalidNewNumber_throwsAndChangesNothing(long badNewPhno) {
+        MobileNumberException ex = assertThrows(MobileNumberException.class,
+                () -> bankService.updatePhno(9876543210L, badNewPhno));
+
+        assertEquals("Invalid mobile number", ex.getMessage());
+        verifyNoInteractions(userRepository);
+    }
+
     // ---------- delete ----------
 
     @Test
