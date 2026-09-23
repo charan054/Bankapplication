@@ -46,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -373,6 +374,7 @@ class BankServiceTest {
         assertMoney(500, txn.getAmount());
         assertMoney(1500, txn.getBalance());
         assertEquals(100000L, txn.getTransactionId());   // first ever transaction
+        assertEquals(NOW, txn.getCreatedAt());
 
         verify(bankKafkaProducer).sendMessage(contains("Amount deposited successfully"));
         verify(userRepository).save(user);
@@ -404,6 +406,7 @@ class BankServiceTest {
         verify(bankTransactionRepository).save(captor.capture());
         assertEquals(100008L, captor.getValue().getTransactionId());   // last id + 1
         assertEquals("Credit", captor.getValue().getAction());
+        assertEquals(NOW, captor.getValue().getCreatedAt());
     }
 
     @Test
@@ -433,6 +436,7 @@ class BankServiceTest {
         assertEquals("Debit", captor.getValue().getAction());
         assertMoney(400, captor.getValue().getAmount());
         assertMoney(600, captor.getValue().getBalance());
+        assertEquals(NOW, captor.getValue().getCreatedAt());
 
         verify(bankKafkaProducer).sendMessage(contains("Amount Withdraw successfully"));
         verify(userRepository).save(user);
@@ -446,6 +450,9 @@ class BankServiceTest {
         bankService.withdrawByacno(1000000000L, money(300));
 
         assertMoney(700, user.getBalance());
+        ArgumentCaptor<BankTransaction> captor = ArgumentCaptor.forClass(BankTransaction.class);
+        verify(bankTransactionRepository).save(captor.capture());
+        assertEquals(NOW, captor.getValue().getCreatedAt());
     }
 
     // The balance check must live INSIDE the service transaction; a check made earlier can be stale by the time we subtract.
@@ -528,9 +535,11 @@ class BankServiceTest {
         assertEquals("Debit", saved.get(0).getAction());
         assertEquals(100006L, saved.get(0).getTransactionId());
         assertEquals(9876543210L, saved.get(0).getPhno());
+        assertEquals(NOW, saved.get(0).getCreatedAt());
         assertEquals("Credit", saved.get(1).getAction());
         assertEquals(100007L, saved.get(1).getTransactionId());
         assertEquals(9123456789L, saved.get(1).getPhno());
+        assertEquals(NOW, saved.get(1).getCreatedAt());
 
         ArgumentCaptor<Transfer> transferCaptor = ArgumentCaptor.forClass(Transfer.class);
         verify(transferRepository).save(transferCaptor.capture());
@@ -676,24 +685,44 @@ class BankServiceTest {
     void displayTransactionByPhno_returnsUsersTransactions() {
         Bank user = bank(1000000000L, 9876543210L, 123456789012L, 0);
         when(userRepository.findByphno(9876543210L)).thenReturn(user);
-        when(bankTransactionRepository.findByPhno(eq(9876543210L), any()))
+        when(bankTransactionRepository.findByPhno(eq(9876543210L), isNull(), isNull(), any()))
                 .thenReturn(new PageImpl<>(List.of(txnWithId(100000))));
 
-        assertEquals(1, bankService.displayTransactionByPhno(9876543210L, 0, 20).content().size());
+        assertEquals(1, bankService.displayTransactionByPhno(9876543210L, 0, 20, null, null).content().size());
+    }
+
+    @Test
+    void displayTransactionByPhno_passesFromAndToThrough() {
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to = Instant.parse("2026-01-31T00:00:00Z");
+        when(userRepository.findByphno(9876543210L)).thenReturn(bank(1000000000L, 9876543210L, 123456789012L, 0));
+        when(bankTransactionRepository.findByPhno(eq(9876543210L), eq(from), eq(to), any()))
+                .thenReturn(new PageImpl<>(List.of(txnWithId(100000))));
+
+        assertEquals(1, bankService.displayTransactionByPhno(9876543210L, 0, 20, from, to).content().size());
+    }
+
+    @Test
+    void displayTransactionByPhno_fromAfterTo_throwsInvalidRequest() {
+        Instant from = Instant.parse("2026-01-31T00:00:00Z");
+        Instant to = Instant.parse("2026-01-01T00:00:00Z");
+
+        assertThrows(InvalidRequestException.class, () -> bankService.displayTransactionByPhno(9876543210L, 0, 20, from, to));
+        verifyNoInteractions(userRepository, bankTransactionRepository);
     }
 
     @Test
     void displayTransactionByPhno_unknownUser_throwsUserNotFound() {
         when(userRepository.findByphno(9999999999L)).thenReturn(null);
 
-        assertThrows(UserNotFoundException.class, () -> bankService.displayTransactionByPhno(9999999999L, 0, 20));
+        assertThrows(UserNotFoundException.class, () -> bankService.displayTransactionByPhno(9999999999L, 0, 20, null, null));
     }
 
     @Test
     void displayTransactionByPhno_negativePage_throwsInvalidRequest() {
         when(userRepository.findByphno(9876543210L)).thenReturn(bank(1000000000L, 9876543210L, 123456789012L, 0));
 
-        assertThrows(InvalidRequestException.class, () -> bankService.displayTransactionByPhno(9876543210L, -1, 20));
+        assertThrows(InvalidRequestException.class, () -> bankService.displayTransactionByPhno(9876543210L, -1, 20, null, null));
     }
 
     @Test
@@ -701,7 +730,7 @@ class BankServiceTest {
         when(userRepository.findByphno(9876543210L)).thenReturn(bank(1000000000L, 9876543210L, 123456789012L, 0));
 
         assertThrows(InvalidRequestException.class,
-                () -> bankService.displayTransactionByPhno(9876543210L, 0, BankService.MAX_PAGE_SIZE + 1));
+                () -> bankService.displayTransactionByPhno(9876543210L, 0, BankService.MAX_PAGE_SIZE + 1, null, null));
     }
 
     @Test
