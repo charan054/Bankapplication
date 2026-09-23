@@ -471,7 +471,8 @@ class BankApplicationIntegrationTest {
     }
 
     @Test
-    void deleteUser_removesUserAndTheirTransactions() throws Exception {
+    void deleteUser_removesTheAccount_butKeepsTheirTransactionHistory() throws Exception {
+        // The ledger is a financial record: closing an account must not erase what it ever did.
         createUser(PHNO_A, AADHAR_A);
         depositByPhno(PHNO_A, "500");
 
@@ -481,7 +482,8 @@ class BankApplicationIntegrationTest {
         mockMvc.perform(asAdmin(get("/bank/displayuser")).param("phno", "" + PHNO_A))
                 .andExpect(status().isBadRequest());
         assertEquals(0, bankRepository.count());
-        assertEquals(0, bankTransactionRepository.count());
+        assertEquals(1, bankTransactionRepository.count());
+        assertEquals(500.0, bankTransactionRepository.findAll().get(0).getBalance().doubleValue());
     }
 
     @Test
