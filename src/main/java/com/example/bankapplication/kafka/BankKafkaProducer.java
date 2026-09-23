@@ -1,9 +1,12 @@
 package com.example.bankapplication.kafka;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
 public class BankKafkaProducer {
+    private static final Logger log = LoggerFactory.getLogger(BankKafkaProducer.class);
 
     private final KafkaTemplate<String, String> kafkaTemplate;
 
@@ -15,9 +18,9 @@ public class BankKafkaProducer {
         kafkaTemplate.send("bank-notification-topic", message)
                 .whenComplete((result, ex) -> {
                     if (ex != null) {
-                        System.out.println("Kafka send failed: " + ex.getMessage());
+                        log.error("Kafka send failed: {}", ex.getMessage());
                     } else {
-                        System.out.println("Kafka message sent successfully "+message);
+                        log.info("Kafka message sent successfully {}", message);
                     }
                 });
     }
