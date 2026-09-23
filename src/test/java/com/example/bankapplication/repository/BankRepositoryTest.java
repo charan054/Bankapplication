@@ -247,49 +247,11 @@ class BankRepositoryTest {
         assertEquals(2, bankRepository.count());
     }
 
-    // ---------- Bank <-> BankTransaction relationship ----------
+    // ---------- Bank <-> BankTransaction: no ORM relationship, deliberately (see Bank.java) ----------
 
     @Test
-    void transactions_areLoadedThroughUserIdJoinColumn() {
-        Bank bank = bankRepository.save(newBank(1000000000L, 9876543210L, 111111111111L, 0));
-        bankTransactionRepository.save(newTxn(100000, bank.getUserId(), 9876543210L, "Credit", 500, 500));
-        bankTransactionRepository.save(newTxn(100001, bank.getUserId(), 9876543210L, "Debit", 200, 300));
-        flushAndClear();
-
-        // Proves the join column really links the two tables; BankService.displayTransactionByPhno itself now
-        // queries BankTransactionRepository.findByPhno directly (see BankTransactionRepositoryTest) rather than
-        // walking this relationship, so it can paginate.
-        List<BankTransaction> txns = bankRepository.findByphno(9876543210L).getTransactions();
-
-        assertEquals(2, txns.size());
-        assertEquals("Credit", txns.get(0).getAction());
-        assertEquals("Debit", txns.get(1).getAction());
-    }
-
-    @Test
-    void transactions_belongToOnlyTheirOwnUser() {
-        Bank a = bankRepository.save(newBank(1000000000L, 9000000001L, 111111111111L, 0));
-        Bank b = bankRepository.save(newBank(1000000001L, 9000000002L, 222222222222L, 0));
-        bankTransactionRepository.save(newTxn(100000, a.getUserId(), 9000000001L, "Credit", 100, 100));
-        bankTransactionRepository.save(newTxn(100001, b.getUserId(), 9000000002L, "Credit", 900, 900));
-        flushAndClear();
-
-        List<BankTransaction> aTxns = bankRepository.findByphno(9000000001L).getTransactions();
-
-        assertEquals(1, aTxns.size());
-        assertMoney(100, aTxns.get(0).getAmount());
-    }
-
-    @Test
-    void newUser_hasNoTransactions() {
-        bankRepository.save(newBank(1000000000L, 9876543210L, 111111111111L, 0));
-        flushAndClear();
-
-        assertEquals(0, bankRepository.findByphno(9876543210L).getTransactions().size());
-    }
-
-    @Test
-    void deletingUser_cascadesToTheirTransactions() {
+    void deletingUser_doesNotDeleteTheirTransactions() {
+        // The ledger is a financial record: closing an account must not erase what it ever did.
         Bank bank = bankRepository.save(newBank(1000000000L, 9876543210L, 111111111111L, 0));
         bankTransactionRepository.save(newTxn(100000, bank.getUserId(), 9876543210L, "Credit", 500, 500));
         flushAndClear();
@@ -298,6 +260,6 @@ class BankRepositoryTest {
         flushAndClear();
 
         assertNull(bankRepository.findByphno(9876543210L));
-        assertEquals(0, bankTransactionRepository.count());
+        assertEquals(1, bankTransactionRepository.count());
     }
 }
