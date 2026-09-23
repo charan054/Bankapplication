@@ -2,6 +2,7 @@ package com.example.bankapplication.service;
 
 import com.example.bankapplication.dto.BankDto;
 import com.example.bankapplication.dto.LoginResponse;
+import com.example.bankapplication.dto.PageResponse;
 import com.example.bankapplication.dto.RegisterRequest;
 import com.example.bankapplication.entity.Bank;
 import com.example.bankapplication.entity.BankTransaction;
@@ -19,6 +20,9 @@ import com.example.bankapplication.repository.BankRepository;
 import com.example.bankapplication.repository.BankTransactionRepository;
 import com.example.bankapplication.repository.TransferRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,12 +34,13 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
 @Service
 public class BankService {
     static final int MAX_FAILED_LOGIN_ATTEMPTS = 5;
     static final Duration LOCKOUT_DURATION = Duration.ofMinutes(15);
+    public static final int DEFAULT_PAGE_SIZE = 20;
+    public static final int MAX_PAGE_SIZE = 100;
 
     @Autowired
     private BankRepository userRepository;
@@ -58,16 +63,11 @@ public class BankService {
     public Bank findByphno(long phno) {
         return userRepository.findByphno(phno);
     }
-    public List<BankDto> findAll()
+    public PageResponse<BankDto> findAll(int page, int size)
     {
-
-        List<Bank> l=userRepository.findAll();
-        List<BankDto> dto=new ArrayList<>();
-        for(Bank b:l)
-        {
-            dto.add(new BankDto(b.getUserId(),b.getAcno(),(b.getLastName()+" "+b.getFirstName()).toUpperCase(),b.getAadharNumber(),b.getPhno(),b.getBalance()));
-        }
-        return dto;
+        return PageResponse.of(userRepository.findAll(pageable(page, size, Sort.by("userId").ascending()))
+                .map(b -> new BankDto(b.getUserId(), b.getAcno(), (b.getLastName() + " " + b.getFirstName()).toUpperCase(),
+                        b.getAadharNumber(), b.getPhno(), b.getBalance())));
     }
 
     // ---------- authentication ----------
@@ -465,11 +465,24 @@ public class BankService {
             System.out.println("Kafka notification failed: "+e.getMessage());
         }
     }
-    public List<BankTransaction> displayTransactionByPhno(long phno)
+    public PageResponse<BankTransaction> displayTransactionByPhno(long phno, int page, int size)
     {
         Bank b=userRepository.findByphno(phno);
         if(b==null)
             throw new UserNotFoundException("User not found");
-        return b.getTransactions();
+        return PageResponse.of(bankTransactionRepository.findByPhno(phno, pageable(page, size, Sort.by("id").ascending())));
+    }
+
+    // page/size come straight from a query parameter, so out-of-range values are a caller mistake, not a crash.
+    private Pageable pageable(int page, int size, Sort sort)
+    {
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE)
+        {
+            throw new InvalidRequestException("page must be 0 or more, and size must be between 1 and " + MAX_PAGE_SIZE + ".");
+        }
+        return PageRequest.of(page, size, sort);
     }
 }
+
+
+
