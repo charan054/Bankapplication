@@ -554,15 +554,33 @@ class BankServiceTest {
 
     // The whole point of the idempotency key: a retry (after a timeout, say) must never move the money twice.
     @Test
-    void transfer_sameIdempotencyKeyAgain_doesNotMoveAnyMoney_returnsTheOriginalResult() {
+    void transfer_sameIdempotencyKeyAgain_withMatchingDetails_doesNotMoveAnyMoney_returnsTheOriginalResult() {
         Transfer previous = new Transfer();
         previous.setIdempotencyKey("key-1");
+        previous.setPayerPhno(9876543210L);
+        previous.setReceiverPhno(9123456789L);
         previous.setAmount(money(250));
         when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(previous));
 
-        String result = bankService.transfer(9876543210L, 9123456789L, money(999), "key-1");
+        String result = bankService.transfer(9876543210L, 9123456789L, money(250), "key-1");
 
         assertEquals("Transfer Successful Amount Inr : 250.0", result);
+        verifyNoInteractions(userRepository, bankTransactionRepository, bankKafkaProducer);
+    }
+
+    // A reused key with a DIFFERENT payer, receiver, or amount is not a retry - it must never be waved through as
+    // if it were, since that would report success for money that was never moved as the caller just asked.
+    @Test
+    void transfer_sameIdempotencyKeyAgain_withDifferentDetails_throwsInvalidRequest() {
+        Transfer previous = new Transfer();
+        previous.setIdempotencyKey("key-1");
+        previous.setPayerPhno(9876543210L);
+        previous.setReceiverPhno(9123456789L);
+        previous.setAmount(money(250));
+        when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(previous));
+
+        assertThrows(InvalidRequestException.class,
+                () -> bankService.transfer(9876543210L, 9123456789L, money(999), "key-1"));
         verifyNoInteractions(userRepository, bankTransactionRepository, bankKafkaProducer);
     }
 
