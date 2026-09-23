@@ -25,10 +25,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -79,6 +80,18 @@ class BankControllerTest {
         return request.header("X-Admin-Key", ADMIN_KEY);
     }
 
+    // Plain conversion: for entity fields only read back via compareTo() or JSON, where scale never matters.
+    private static BigDecimal money(double v) {
+        return BigDecimal.valueOf(v);
+    }
+
+    // Scale-2: what BankController.requirePositiveAmount actually produces, so a mock stub/verify given this
+    // exact value matches the argument the controller really passes (BigDecimal.equals() is scale-sensitive:
+    // "400" and "400.00" are numerically equal but NOT .equals(), which is what Mockito's default matching uses).
+    private static BigDecimal normalized(double v) {
+        return BigDecimal.valueOf(v).setScale(2, RoundingMode.HALF_UP);
+    }
+
     private Bank bankWithBalance(double balance) {
         Bank b = new Bank();
         b.setUserId(1);
@@ -87,7 +100,7 @@ class BankControllerTest {
         b.setLastName("Kumar");
         b.setAadharNumber(123456789012L);
         b.setPhno(PHNO);
-        b.setBalance(balance);
+        b.setBalance(money(balance));
         return b;
     }
 
@@ -240,7 +253,7 @@ class BankControllerTest {
 
     @Test
     void me_isTheCallersOwnProfile() throws Exception {
-        when(bankService.displayUserByPhno(PHNO)).thenReturn(new BankDto(1, ACNO, "KUMAR CHARAN", 123456789012L, PHNO, 500));
+        when(bankService.displayUserByPhno(PHNO)).thenReturn(new BankDto(1, ACNO, "KUMAR CHARAN", 123456789012L, PHNO, money(500)));
 
         mockMvc.perform(asCaller(get("/bank/me")))
                 .andExpect(status().isOk())
@@ -249,14 +262,14 @@ class BankControllerTest {
 
     @Test
     void deposit_usesThePhoneFromTheToken_ignoringAnyPhnoInTheRequest() throws Exception {
-        when(bankService.depositByphno(PHNO, 50.0)).thenReturn("Deposit Successful Amount Inr : 50.0");
+        when(bankService.depositByphno(PHNO, normalized(50))).thenReturn("Deposit Successful Amount Inr : 50.00");
 
         mockMvc.perform(asCaller(put("/bank/deposit")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"phno\":9000000001,\"amount\":50}"))
                 .andExpect(status().isOk());
 
-        verify(bankService).depositByphno(PHNO, 50.0);
-        verify(bankService, never()).depositByphno(9000000001L, 50.0);
+        verify(bankService).depositByphno(PHNO, normalized(50));
+        verify(bankService, never()).depositByphno(9000000001L, normalized(50));
     }
 
     @Test
@@ -265,7 +278,7 @@ class BankControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("Amount too low"));
 
-        verify(bankService, never()).depositByphno(anyLong(), anyDouble());
+        verify(bankService, never()).depositByphno(anyLong(), any());
     }
 
     @Test
@@ -276,17 +289,17 @@ class BankControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("Insufficient Funds"));
 
-        verify(bankService, never()).withdrawByphno(anyLong(), anyDouble());
+        verify(bankService, never()).withdrawByphno(anyLong(), any());
     }
 
     @Test
     void withdraw_success() throws Exception {
         when(bankService.findByphno(PHNO)).thenReturn(bankWithBalance(1000));
-        when(bankService.withdrawByphno(PHNO, 400)).thenReturn("Withdraw Successful Amount Inr : 400.0");
+        when(bankService.withdrawByphno(PHNO, normalized(400))).thenReturn("Withdraw Successful Amount Inr : 400.00");
 
         mockMvc.perform(asCaller(put("/bank/withdraw")).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":400}"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("Withdraw Successful Amount Inr : 400.0"));
+                .andExpect(content().string("Withdraw Successful Amount Inr : 400.00"));
     }
 
     @Test
@@ -327,7 +340,7 @@ class BankControllerTest {
     @Test
     void getAll_withAdminKey_returnsListOfDtos() throws Exception {
         when(bankService.findAll()).thenReturn(List.of(
-                new BankDto(1, ACNO, "KUMAR CHARAN", 123456789012L, PHNO, 500)));
+                new BankDto(1, ACNO, "KUMAR CHARAN", 123456789012L, PHNO, money(500))));
 
         mockMvc.perform(asAdmin(get("/bank/all")))
                 .andExpect(status().isOk())
@@ -451,7 +464,7 @@ class BankControllerTest {
 
     @Test
     void deposit_optimisticLockConflict_returns409Retry() throws Exception {
-        when(bankService.depositByphno(anyLong(), anyDouble()))
+        when(bankService.depositByphno(anyLong(), any()))
                 .thenThrow(new ObjectOptimisticLockingFailureException(Bank.class, 1));
 
         mockMvc.perform(asAdmin(put("/bank/depositByphno")).param("phno", "" + PHNO).param("balance", "10"))
@@ -462,7 +475,7 @@ class BankControllerTest {
     @Test
     void withdraw_optimisticLockConflict_returns409Retry() throws Exception {
         when(bankService.findByphno(PHNO)).thenReturn(bankWithBalance(1000));
-        when(bankService.withdrawByphno(anyLong(), anyDouble()))
+        when(bankService.withdrawByphno(anyLong(), any()))
                 .thenThrow(new ObjectOptimisticLockingFailureException(Bank.class, 1));
 
         mockMvc.perform(asAdmin(put("/bank/withdrawByphno")).param("phno", "" + PHNO).param("balance", "10"))
@@ -481,17 +494,17 @@ class BankControllerTest {
     @Test
     void withdrawByphno_success() throws Exception {
         when(bankService.findByphno(PHNO)).thenReturn(bankWithBalance(1000));
-        when(bankService.withdrawByphno(PHNO, 400)).thenReturn("Withdraw Successful Amount Inr : 400.0");
+        when(bankService.withdrawByphno(PHNO, normalized(400))).thenReturn("Withdraw Successful Amount Inr : 400.00");
 
         mockMvc.perform(asAdmin(put("/bank/withdrawByphno")).param("phno", "" + PHNO).param("balance", "400"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("Withdraw Successful Amount Inr : 400.0"));
+                .andExpect(content().string("Withdraw Successful Amount Inr : 400.00"));
     }
 
     @Test
     void withdrawByphno_exactBalance_isAllowed() throws Exception {
         when(bankService.findByphno(PHNO)).thenReturn(bankWithBalance(1000));
-        when(bankService.withdrawByphno(PHNO, 1000)).thenReturn("Withdraw Successful Amount Inr : 1000.0");
+        when(bankService.withdrawByphno(PHNO, normalized(1000))).thenReturn("Withdraw Successful Amount Inr : 1000.00");
 
         mockMvc.perform(asAdmin(put("/bank/withdrawByphno")).param("phno", "" + PHNO).param("balance", "1000"))
                 .andExpect(status().isOk());
@@ -504,7 +517,7 @@ class BankControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("Amount too low"));
 
-        verify(bankService, never()).withdrawByphno(anyLong(), anyDouble());
+        verify(bankService, never()).withdrawByphno(anyLong(), any());
     }
 
     @Test
@@ -515,7 +528,7 @@ class BankControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("Insufficient Funds"));
 
-        verify(bankService, never()).withdrawByphno(anyLong(), anyDouble());
+        verify(bankService, never()).withdrawByphno(anyLong(), any());
     }
 
     @Test
@@ -538,13 +551,13 @@ class BankControllerTest {
     @Test
     void withdrawByacno_passesPositiveAmountToService() throws Exception {
         when(bankService.findByacno(ACNO)).thenReturn(bankWithBalance(1000));
-        when(bankService.withdrawByacno(anyLong(), anyDouble())).thenReturn("Withdraw Successful Amount Inr : 300.0");
+        when(bankService.withdrawByacno(anyLong(), any())).thenReturn("Withdraw Successful Amount Inr : 300.00");
 
         mockMvc.perform(asAdmin(put("/bank/withdrawByacno")).param("acno", "" + ACNO).param("balance", "300"))
                 .andExpect(status().isOk());
 
-        // The service SUBTRACTS the amount it receives, so it must receive +300.
-        verify(bankService).withdrawByacno(ACNO, 300.0);
+        // The service SUBTRACTS the amount it receives, so it must receive +300, not -300.
+        verify(bankService).withdrawByacno(ACNO, normalized(300));
     }
 
     @Test
@@ -576,11 +589,11 @@ class BankControllerTest {
 
     @Test
     void depositByphno_success() throws Exception {
-        when(bankService.depositByphno(PHNO, 250)).thenReturn("Deposit Successful Amount Inr : 250.0");
+        when(bankService.depositByphno(PHNO, normalized(250))).thenReturn("Deposit Successful Amount Inr : 250.00");
 
         mockMvc.perform(asAdmin(put("/bank/depositByphno")).param("phno", "" + PHNO).param("balance", "250"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("Deposit Successful Amount Inr : 250.0"));
+                .andExpect(content().string("Deposit Successful Amount Inr : 250.00"));
     }
 
     @ParameterizedTest
@@ -590,12 +603,12 @@ class BankControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("Amount too low"));
 
-        verify(bankService, never()).depositByphno(anyLong(), anyDouble());
+        verify(bankService, never()).depositByphno(anyLong(), any());
     }
 
     @Test
     void depositByphno_unknownUser_returns400() throws Exception {
-        when(bankService.depositByphno(anyLong(), anyDouble())).thenThrow(new UserNotFoundException("User not found"));
+        when(bankService.depositByphno(anyLong(), any())).thenThrow(new UserNotFoundException("User not found"));
 
         mockMvc.perform(asAdmin(put("/bank/depositByphno")).param("phno", "" + PHNO).param("balance", "10"))
                 .andExpect(status().isBadRequest())
@@ -612,11 +625,11 @@ class BankControllerTest {
 
     @Test
     void depositByacno_success() throws Exception {
-        when(bankService.depositByacno(ACNO, 75)).thenReturn("Deposit Successful Amount Inr : 75.0");
+        when(bankService.depositByacno(ACNO, normalized(75))).thenReturn("Deposit Successful Amount Inr : 75.00");
 
         mockMvc.perform(asAdmin(put("/bank/depositByacno")).param("acno", "" + ACNO).param("balance", "75"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("Deposit Successful Amount Inr : 75.0"));
+                .andExpect(content().string("Deposit Successful Amount Inr : 75.00"));
     }
 
     @Test
@@ -625,7 +638,7 @@ class BankControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("Amount too low"));
 
-        verify(bankService, never()).depositByacno(anyLong(), anyDouble());
+        verify(bankService, never()).depositByacno(anyLong(), any());
     }
 
     // ---------- PUT /bank/updatephno ----------
@@ -674,7 +687,7 @@ class BankControllerTest {
     @Test
     void displayUser_success() throws Exception {
         when(bankService.displayUserByPhno(PHNO))
-                .thenReturn(new BankDto(1, ACNO, "KUMAR CHARAN", 123456789012L, PHNO, 500));
+                .thenReturn(new BankDto(1, ACNO, "KUMAR CHARAN", 123456789012L, PHNO, money(500)));
 
         mockMvc.perform(asAdmin(get("/bank/displayuser")).param("phno", "" + PHNO))
                 .andExpect(status().isOk())
@@ -697,8 +710,8 @@ class BankControllerTest {
         BankTransaction t = new BankTransaction();
         t.setTransactionId(100000);
         t.setAction("Credit");
-        t.setAmount(250);
-        t.setBalance(750);
+        t.setAmount(money(250));
+        t.setBalance(money(750));
         when(bankService.displayTransactionByPhno(PHNO)).thenReturn(List.of(t));
 
         mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO))
