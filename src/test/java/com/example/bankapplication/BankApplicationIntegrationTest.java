@@ -477,7 +477,7 @@ class BankApplicationIntegrationTest {
 
         balanceShouldBe(PHNO_B, 500.0);
         mockMvc.perform(asAdmin(get("/bank/displayuser")).param("phno", "" + PHNO_A))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
@@ -510,7 +510,7 @@ class BankApplicationIntegrationTest {
                 .andExpect(status().isOk());
 
         mockMvc.perform(asAdmin(get("/bank/displayuser")).param("phno", "" + PHNO_A))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isNotFound());
         assertEquals(0, bankRepository.count());
         assertEquals(1, bankTransactionRepository.count());
         assertEquals(500.0, bankTransactionRepository.findAll().get(0).getBalance().doubleValue());
@@ -698,7 +698,7 @@ class BankApplicationIntegrationTest {
 
         mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"payerPhno\":" + PHNO_A + ",\"receiverPhno\":9999999999,\"amount\":250,\"idempotencyKey\":\"test-key-3\"}"))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("Receiver not found"));
 
         balanceShouldBe(PHNO_A, 1000.0);
@@ -769,30 +769,30 @@ class BankApplicationIntegrationTest {
     // ---------- unknown users ----------
 
     @Test
-    void lookupByPhone_forUnknownUser_returns400() throws Exception {
+    void lookupByPhone_forUnknownUser_returns404() throws Exception {
         mockMvc.perform(asAdmin(get("/bank/getByphno/{phno}", 9999999999L)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
     @Test
-    void lookupByAccountNumber_forUnknownUser_returns400() throws Exception {
+    void lookupByAccountNumber_forUnknownUser_returns404() throws Exception {
         mockMvc.perform(asAdmin(get("/bank/getByacno/{acno}", 1234L)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
     @Test
-    void transactions_forUnknownUser_returns400NotA500() throws Exception {
+    void transactions_forUnknownUser_returns404NotA500() throws Exception {
         mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "9999999999"))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
     @Test
-    void deposit_forUnknownUser_returns400() throws Exception {
+    void deposit_forUnknownUser_returns404() throws Exception {
         mockMvc.perform(asAdmin(put("/bank/depositByphno")).param("phno", "9999999999").param("balance", "10"))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
