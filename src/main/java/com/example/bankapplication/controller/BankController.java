@@ -5,6 +5,7 @@ import com.example.bankapplication.dto.AmountRequest;
 import com.example.bankapplication.dto.BankDto;
 import com.example.bankapplication.dto.LoginRequest;
 import com.example.bankapplication.dto.LoginResponse;
+import com.example.bankapplication.dto.PageResponse;
 import com.example.bankapplication.dto.RegisterRequest;
 import com.example.bankapplication.dto.SetPinRequest;
 import com.example.bankapplication.dto.TransferRequest;
@@ -91,8 +92,10 @@ public class BankController {
     }
 
     @GetMapping("/my-transactions")
-    public List<BankTransaction> myTransactions(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno) {
-        return bankService.displayTransactionByPhno(phno);
+    public PageResponse<BankTransaction> myTransactions(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
+                          @RequestParam(defaultValue = "0") int page,
+                          @RequestParam(defaultValue = "" + BankService.DEFAULT_PAGE_SIZE) int size) {
+        return bankService.displayTransactionByPhno(phno, page, size);
     }
 
     @DeleteMapping("/me")
@@ -103,8 +106,9 @@ public class BankController {
     // ---------- trusted caller (admin key or service key) ----------
 
     @GetMapping("/all")
-    public List<BankDto> getAllUser(){
-        return bankService.findAll();
+    public PageResponse<BankDto> getAllUser(@RequestParam(defaultValue = "0") int page,
+                            @RequestParam(defaultValue = "" + BankService.DEFAULT_PAGE_SIZE) int size){
+        return bankService.findAll(page, size);
     }
     @GetMapping("/getByphno/{phno}")
     public Bank getByPhno(@PathVariable("phno") long phno){
@@ -167,8 +171,10 @@ public class BankController {
         return bankService.displayUserByPhno(phno);
     }
     @GetMapping("/transactions")
-    public List<BankTransaction> displayTransactionByPhno(@RequestParam long phno){
-        return bankService.displayTransactionByPhno(phno);
+    public PageResponse<BankTransaction> displayTransactionByPhno(@RequestParam long phno,
+                          @RequestParam(defaultValue = "0") int page,
+                          @RequestParam(defaultValue = "" + BankService.DEFAULT_PAGE_SIZE) int size){
+        return bankService.displayTransactionByPhno(phno, page, size);
     }
 
     @PostMapping("/transfer")

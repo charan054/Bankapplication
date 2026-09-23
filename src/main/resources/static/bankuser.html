@@ -336,6 +336,8 @@
                 <span class="method">GET</span>
             </div>
             <p>View your own transaction statement. Requires login.</p>
+            <input type="number" id="transactionsPage" placeholder="Page (default 0)" min="0" />
+            <input type="number" id="transactionsSize" placeholder="Page size (default 20)" min="1" max="100" />
             <button class="purple" onclick="displayTransactions()">View Statement</button>
         </div>
 
@@ -445,7 +447,7 @@
       return escapeHtml(value);
     }
 
-    function openResultTab(title, data) {
+    function openResultTab(title, data, meta) {
       const resultTab = window.open("about:blank", "_blank");
 
       if (!resultTab) {
@@ -510,7 +512,7 @@
         </head>
         <body>
           <div class="header"><h1>${escapeHtml(title)}</h1><p>Charan Banking Service User Portal</p></div>
-          <div class="summary"><h2>Result Table</h2><div class="count">${rows.length} record(s)</div></div>
+          <div class="summary"><h2>Result Table</h2><div class="count">${meta ? `${rows.length} of ${meta.totalElements} &middot; page ${meta.page + 1} of ${Math.max(meta.totalPages, 1)}` : `${rows.length} record(s)`}</div></div>
           <main class="content">${tableHtml}</main>
           <div class="actions"><button onclick="window.print()">Print Result</button><button class="close" onclick="window.close()">Close Tab</button></div>
         </body>
@@ -597,10 +599,12 @@
 
     async function displayTransactions() {
       if (!requireLogin()) return;
+      const page = document.getElementById("transactionsPage").value || 0;
+      const size = document.getElementById("transactionsSize").value || 20;
 
-      const data = await apiCall(`${BASE_URL}/my-transactions`);
+      const data = await apiCall(`${BASE_URL}/my-transactions?page=${encodeURIComponent(page)}&size=${encodeURIComponent(size)}`);
       showStatus("Statement loaded successfully. Result opened in new tab.", "success");
-      openResultTab("Transaction Statement", data);
+      openResultTab("Transaction Statement", data.content, data);
     }
 
     updateSessionBar();

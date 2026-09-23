@@ -143,10 +143,39 @@ class BankApplicationIntegrationTest {
 
         mockMvc.perform(asAdmin(get("/bank/all")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].acno").value(FIRST_ACNO))
-                .andExpect(jsonPath("$[1].acno").value(FIRST_ACNO + 1))
-                .andExpect(jsonPath("$[0].name").value("KUMAR CHARAN"));
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].acno").value(FIRST_ACNO))
+                .andExpect(jsonPath("$.content[1].acno").value(FIRST_ACNO + 1))
+                .andExpect(jsonPath("$.content[0].name").value("KUMAR CHARAN"));
+    }
+
+    @Test
+    void getAllUsers_isPaginated() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        createUser(PHNO_B, AADHAR_B);
+        createUser(9000000001L, 333333333333L);
+
+        mockMvc.perform(asAdmin(get("/bank/all")).param("page", "0").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.content[0].acno").value(FIRST_ACNO));
+
+        mockMvc.perform(asAdmin(get("/bank/all")).param("page", "1").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].acno").value(FIRST_ACNO + 2));
+    }
+
+    @Test
+    void getAllUsers_invalidPageOrSize_returns400() throws Exception {
+        mockMvc.perform(asAdmin(get("/bank/all")).param("page", "-1"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(asAdmin(get("/bank/all")).param("size", "0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(asAdmin(get("/bank/all")).param("size", "1000"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -210,7 +239,7 @@ class BankApplicationIntegrationTest {
 
         mockMvc.perform(as(token, get("/bank/my-transactions")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2));
+                .andExpect(jsonPath("$.content.length()").value(2));
     }
 
     @Test
@@ -320,15 +349,15 @@ class BankApplicationIntegrationTest {
 
         mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_A))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].transactionId").value(100000))
-                .andExpect(jsonPath("$[0].action").value("Credit"))
-                .andExpect(jsonPath("$[0].amount").value(1000.0))
-                .andExpect(jsonPath("$[0].balance").value(1000.0))
-                .andExpect(jsonPath("$[1].transactionId").value(100001))
-                .andExpect(jsonPath("$[1].action").value("Debit"))
-                .andExpect(jsonPath("$[1].amount").value(400.0))
-                .andExpect(jsonPath("$[1].balance").value(600.0));
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].transactionId").value(100000))
+                .andExpect(jsonPath("$.content[0].action").value("Credit"))
+                .andExpect(jsonPath("$.content[0].amount").value(1000.0))
+                .andExpect(jsonPath("$.content[0].balance").value(1000.0))
+                .andExpect(jsonPath("$.content[1].transactionId").value(100001))
+                .andExpect(jsonPath("$.content[1].action").value("Debit"))
+                .andExpect(jsonPath("$.content[1].amount").value(400.0))
+                .andExpect(jsonPath("$.content[1].balance").value(600.0));
     }
 
     // Regression test for the bug where the controller negated the amount and a withdrawal ADDED money.
@@ -343,9 +372,9 @@ class BankApplicationIntegrationTest {
 
         balanceShouldBe(PHNO_A, 700.0);
         mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_A))
-                .andExpect(jsonPath("$[1].action").value("Debit"))
-                .andExpect(jsonPath("$[1].amount").value(300.0))     // recorded as +300, not -300
-                .andExpect(jsonPath("$[1].balance").value(700.0));
+                .andExpect(jsonPath("$.content[1].action").value("Debit"))
+                .andExpect(jsonPath("$.content[1].amount").value(300.0))     // recorded as +300, not -300
+                .andExpect(jsonPath("$.content[1].balance").value(700.0));
     }
 
     @Test
@@ -378,11 +407,31 @@ class BankApplicationIntegrationTest {
         depositByPhno(PHNO_B, "900");
 
         mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_A))
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].amount").value(100.0));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].amount").value(100.0));
         mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_B))
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].amount").value(900.0));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].amount").value(900.0));
+    }
+
+    @Test
+    void transactions_arePaginated() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        for (int i = 0; i < 3; i++) {
+            depositByPhno(PHNO_A, "100");
+        }
+
+        mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_A).param("page", "0").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.content[0].transactionId").value(100000));
+
+        mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_A).param("page", "1").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].transactionId").value(100002));
     }
 
     // ---------- update / delete ----------
@@ -563,11 +612,11 @@ class BankApplicationIntegrationTest {
         balanceShouldBe(PHNO_A, 750.0);
         balanceShouldBe(PHNO_B, 250.0);
         mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_A))
-                .andExpect(jsonPath("$[1].action").value("Debit"))
-                .andExpect(jsonPath("$[1].amount").value(250.0));
+                .andExpect(jsonPath("$.content[1].action").value("Debit"))
+                .andExpect(jsonPath("$.content[1].amount").value(250.0));
         mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_B))
-                .andExpect(jsonPath("$[0].action").value("Credit"))
-                .andExpect(jsonPath("$[0].amount").value(250.0));
+                .andExpect(jsonPath("$.content[0].action").value("Credit"))
+                .andExpect(jsonPath("$.content[0].amount").value(250.0));
     }
 
     @Test

@@ -224,7 +224,9 @@ class BankRepositoryTest {
         bankTransactionRepository.save(newTxn(100001, bank.getUserId(), 9876543210L, "Debit", 200, 300));
         flushAndClear();
 
-        // Same call BankService.displayTransactionByPhno makes.
+        // Proves the join column really links the two tables; BankService.displayTransactionByPhno itself now
+        // queries BankTransactionRepository.findByPhno directly (see BankTransactionRepositoryTest) rather than
+        // walking this relationship, so it can paginate.
         List<BankTransaction> txns = bankRepository.findByphno(9876543210L).getTransactions();
 
         assertEquals(2, txns.size());
