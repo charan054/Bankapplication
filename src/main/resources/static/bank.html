@@ -299,6 +299,8 @@
                 <span class="method">GET</span>
             </div>
             <p>Fetch and view all bank users in a separate result tab. Requires the admin key above.</p>
+            <input type="number" id="allUsersPage" placeholder="Page (default 0)" min="0" />
+            <input type="number" id="allUsersSize" placeholder="Page size (default 20)" min="1" max="100" />
             <button onclick="getAllUsers()">View All Users</button>
         </div>
 
@@ -391,6 +393,8 @@
             </div>
             <p>View bank transaction history by phone number.</p>
             <input type="number" id="transactionPhno" placeholder="Enter phone number" />
+            <input type="number" id="transactionsPage" placeholder="Page (default 0)" min="0" />
+            <input type="number" id="transactionsSize" placeholder="Page size (default 20)" min="1" max="100" />
             <button class="purple" onclick="displayTransactions()">View Transactions</button>
         </div>
 
@@ -521,7 +525,7 @@
       return escapeHtml(value);
     }
 
-    function openResultTab(title, data) {
+    function openResultTab(title, data, meta) {
       const resultTab = window.open("about:blank", "_blank");
 
       if (!resultTab) {
@@ -602,7 +606,7 @@
           </div>
           <div class="summary">
             <h2>Result Table</h2>
-            <div class="count">${rows.length} record(s)</div>
+            <div class="count">${meta ? `${rows.length} of ${meta.totalElements} &middot; page ${meta.page + 1} of ${Math.max(meta.totalPages, 1)}` : `${rows.length} record(s)`}</div>
           </div>
           <main class="content">${tableHtml}</main>
           <div class="actions">
@@ -616,9 +620,12 @@
     }
 
     async function getAllUsers() {
-      const data = await apiCall(`${BASE_URL}/all`);
+      const page = document.getElementById("allUsersPage").value || 0;
+      const size = document.getElementById("allUsersSize").value || 20;
+
+      const data = await apiCall(`${BASE_URL}/all?page=${encodeURIComponent(page)}&size=${encodeURIComponent(size)}`);
       showStatus("All users loaded successfully. Result opened in new tab.", "success");
-      openResultTab("All Users", data);
+      openResultTab("All Users", data.content, data);
     }
 
     async function getByPhno() {
@@ -772,10 +779,12 @@
     async function displayTransactions() {
       const phno = document.getElementById("transactionPhno").value;
       if (!phno) return showStatus("Please enter phone number.", "error");
+      const page = document.getElementById("transactionsPage").value || 0;
+      const size = document.getElementById("transactionsSize").value || 20;
 
-      const data = await apiCall(`${BASE_URL}/transactions?phno=${encodeURIComponent(phno)}`);
+      const data = await apiCall(`${BASE_URL}/transactions?phno=${encodeURIComponent(phno)}&page=${encodeURIComponent(page)}&size=${encodeURIComponent(size)}`);
       showStatus("Transactions loaded successfully. Result opened in new tab.", "success");
-      openResultTab("Bank Transactions", data);
+      openResultTab("Bank Transactions", data.content, data);
     }
 
     updateAdminKeyStatus();
