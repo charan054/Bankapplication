@@ -32,6 +32,10 @@ public class GlobalExceptionHandler {
     public ResponseEntity<String> handleAccountLocked(AccountLockedException ex) {
         return ResponseEntity.status(HttpStatus.LOCKED).body(ex.getMessage());
     }
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<String> handleTooManyRequests(TooManyRequestsException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(ex.getMessage());
+    }
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<String> handleValidation(MethodArgumentNotValidException ex) {
         String message = ex.getBindingResult().getFieldErrors().stream()
