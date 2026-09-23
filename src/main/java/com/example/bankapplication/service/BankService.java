@@ -19,6 +19,8 @@ import com.example.bankapplication.kafka.BankKafkaProducer;
 import com.example.bankapplication.repository.BankRepository;
 import com.example.bankapplication.repository.BankTransactionRepository;
 import com.example.bankapplication.repository.TransferRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -37,6 +39,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 @Service
 public class BankService {
+    private static final Logger log = LoggerFactory.getLogger(BankService.class);
     static final int MAX_FAILED_LOGIN_ATTEMPTS = 5;
     static final Duration LOCKOUT_DURATION = Duration.ofMinutes(15);
     public static final int DEFAULT_PAGE_SIZE = 20;
@@ -449,7 +452,7 @@ public class BankService {
             bankKafkaProducer.sendMessage(message);
         }
         catch(RuntimeException e) {
-            System.out.println("Kafka notification failed: "+e.getMessage());
+            log.error("Kafka notification failed: {}", e.getMessage());
         }
     }
     public PageResponse<BankTransaction> displayTransactionByPhno(long phno, int page, int size, Instant from, Instant to)
