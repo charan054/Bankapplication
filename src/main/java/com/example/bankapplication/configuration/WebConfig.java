@@ -49,6 +49,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/bank/deleteuser",
                         "/bank/displayuser",
                         "/bank/transactions",
+                        "/bank/transfer",
                         "/bank/admin/**");
     }
 }

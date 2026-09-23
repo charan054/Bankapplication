@@ -5,8 +5,10 @@ import com.example.bankapplication.dto.LoginResponse;
 import com.example.bankapplication.dto.RegisterRequest;
 import com.example.bankapplication.entity.Bank;
 import com.example.bankapplication.entity.BankTransaction;
+import com.example.bankapplication.entity.Transfer;
 import com.example.bankapplication.exception.AccountLockedException;
 import com.example.bankapplication.exception.InvalidCredentialsException;
+import com.example.bankapplication.exception.InvalidRequestException;
 import com.example.bankapplication.exception.MobileNumberException;
 import com.example.bankapplication.exception.PinNotSetException;
 import com.example.bankapplication.exception.UserExistException;
@@ -15,6 +17,7 @@ import com.example.bankapplication.exception.WithdrawException;
 import com.example.bankapplication.kafka.BankKafkaProducer;
 import com.example.bankapplication.repository.BankRepository;
 import com.example.bankapplication.repository.BankTransactionRepository;
+import com.example.bankapplication.repository.TransferRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -38,6 +41,8 @@ public class BankService {
     private BankRepository userRepository;
     @Autowired
     BankTransactionRepository bankTransactionRepository;
+    @Autowired
+    TransferRepository transferRepository;
     @Autowired
     BankKafkaProducer bankKafkaProducer;
     @Autowired
@@ -311,6 +316,82 @@ public class BankService {
         userRepository.save(exis);
         return "Deposit Successful Amount Inr : "+amount;
     }
+    /**
+     * Moves money between two accounts in ONE database transaction: either both balances change and both ledger
+     * rows are written, or nothing happens at all. This is what makes the operation safe to retry after a
+     * timeout - a caller that never got a response can simply send the identical request again with the same
+     * idempotencyKey, and either finds the completed transfer (if it actually went through) or gets it executed
+     * fresh (if it never did), with no way to end up moving the money twice.
+     */
+    @Transactional
+    public String transfer(long payerPhno, long receiverPhno, BigDecimal amount, String idempotencyKey)
+    {
+        Transfer existing = transferRepository.findByIdempotencyKey(idempotencyKey).orElse(null);
+        if (existing != null)
+        {
+            return "Transfer Successful Amount Inr : " + existing.getAmount();
+        }
+        if (payerPhno == receiverPhno)
+        {
+            throw new InvalidRequestException("Cannot transfer to the same account");
+        }
+        Bank payer = userRepository.findByphno(payerPhno);
+        if (payer == null)
+        {
+            throw new UserNotFoundException("Payer not found");
+        }
+        Bank receiver = userRepository.findByphno(receiverPhno);
+        if (receiver == null)
+        {
+            throw new UserNotFoundException("Receiver not found");
+        }
+        checkSufficientFunds(payer, amount);
+
+        payer.setBalance(payer.getBalance().subtract(amount));
+        receiver.setBalance(receiver.getBalance().add(amount));
+
+        List<BankTransaction> existingTxns = bankTransactionRepository.findAll();
+        long nextId = existingTxns.isEmpty() ? 100000 : existingTxns.get(existingTxns.size() - 1).getTransactionId() + 1;
+        long debitId = nextId;
+        long creditId = nextId + 1;
+
+        BankTransaction debit = new BankTransaction();
+        debit.setTransactionId(debitId);
+        debit.setUserId(payer.getUserId());
+        debit.setPhno(payerPhno);
+        debit.setAction("Debit");
+        debit.setAmount(amount);
+        debit.setBalance(payer.getBalance());
+        bankTransactionRepository.save(debit);
+
+        BankTransaction credit = new BankTransaction();
+        credit.setTransactionId(creditId);
+        credit.setUserId(receiver.getUserId());
+        credit.setPhno(receiverPhno);
+        credit.setAction("Credit");
+        credit.setAmount(amount);
+        credit.setBalance(receiver.getBalance());
+        bankTransactionRepository.save(credit);
+
+        userRepository.save(payer);
+        userRepository.save(receiver);
+
+        Transfer record = new Transfer();
+        record.setIdempotencyKey(idempotencyKey);
+        record.setPayerPhno(payerPhno);
+        record.setReceiverPhno(receiverPhno);
+        record.setAmount(amount);
+        record.setDebitTransactionId(debitId);
+        record.setCreditTransactionId(creditId);
+        record.setCreatedAt(clock.instant());
+        transferRepository.save(record);
+
+        notifyAfterCommit("Transfer successful. From: " + payerPhno + " To: " + receiverPhno
+                + " Amount: " + amount + ", Payer balance: " + payer.getBalance());
+
+        return "Transfer Successful Amount Inr : " + amount;
+    }
+
     @Transactional
     public Bank updatePhno(long phno,long newphno)
     {
