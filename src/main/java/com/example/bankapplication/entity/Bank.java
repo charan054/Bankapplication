@@ -7,7 +7,6 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.List;
 
 @Entity
 @Table(name="Bank")
@@ -49,7 +48,9 @@ public class Bank {
     @Version
     @JsonIgnore
     private long version;
-    @OneToMany(cascade = CascadeType.ALL)
-    @JoinColumn(name = "user_id", referencedColumnName = "userId")
-    private List<BankTransaction>  transactions;
+    // No @OneToMany to BankTransaction here on purpose: a unidirectional one-to-many owning a foreign key column
+    // (rather than a join table) makes Hibernate NULL that column on the child before deleting the parent unless
+    // cascade = REMOVE - and BankTransaction.userId is a primitive long, so that null crashes on the next read.
+    // Closing an account must keep its ledger anyway (see BankService.deleteByPhno), so transactions are looked
+    // up directly through BankTransactionRepository.findByPhno instead of through this entity.
 }
