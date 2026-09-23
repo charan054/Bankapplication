@@ -31,6 +31,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -130,6 +131,8 @@ class BankControllerTest {
                 delete("/bank/deleteuser").param("phno", "" + PHNO),
                 get("/bank/displayuser").param("phno", "" + PHNO),
                 get("/bank/transactions").param("phno", "" + PHNO),
+                post("/bank/transfer").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"payerPhno\":9876543210,\"receiverPhno\":9123456789,\"amount\":10,\"idempotencyKey\":\"k\"}"),
                 put("/bank/admin/set-pin").contentType(MediaType.APPLICATION_JSON).content("{\"phno\":9876543210,\"newPin\":\"5678\"}"));
     }
 
@@ -750,5 +753,81 @@ class BankControllerTest {
                 .andExpect(content().string("PIN must be 4 to 6 digits"));
 
         verifyNoInteractions(bankService);
+    }
+
+    // ---------- POST /bank/transfer ----------
+
+    private static final String VALID_TRANSFER_JSON =
+            "{\"payerPhno\":9876543210,\"receiverPhno\":9123456789,\"amount\":250,\"idempotencyKey\":\"phonepe-100000\"}";
+
+    @Test
+    void transfer_success() throws Exception {
+        when(bankService.transfer(PHNO, 9123456789L, normalized(250), "phonepe-100000"))
+                .thenReturn("Transfer Successful Amount Inr : 250.00");
+
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON).content(VALID_TRANSFER_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().string("Transfer Successful Amount Inr : 250.00"));
+    }
+
+    @Test
+    void transfer_missingIdempotencyKey_returns400_andNeverCallsTheService() throws Exception {
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"payerPhno\":9876543210,\"receiverPhno\":9123456789,\"amount\":250}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Idempotency key is required"));
+
+        verifyNoInteractions(bankService);
+    }
+
+    @Test
+    void transfer_zeroAmount_returns400() throws Exception {
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"payerPhno\":9876543210,\"receiverPhno\":9123456789,\"amount\":0,\"idempotencyKey\":\"k\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Amount too low"));
+
+        verifyNoInteractions(bankService);
+    }
+
+    @Test
+    void transfer_toSameAccount_returns400() throws Exception {
+        when(bankService.transfer(eq(PHNO), eq(PHNO), any(), any()))
+                .thenThrow(new com.example.bankapplication.exception.InvalidRequestException("Cannot transfer to the same account"));
+
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"payerPhno\":9876543210,\"receiverPhno\":9876543210,\"amount\":10,\"idempotencyKey\":\"k\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Cannot transfer to the same account"));
+    }
+
+    @Test
+    void transfer_unknownReceiver_returns400() throws Exception {
+        when(bankService.transfer(eq(PHNO), eq(9123456789L), any(), any()))
+                .thenThrow(new UserNotFoundException("Receiver not found"));
+
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON).content(VALID_TRANSFER_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Receiver not found"));
+    }
+
+    @Test
+    void transfer_insufficientFunds_returns400() throws Exception {
+        when(bankService.transfer(eq(PHNO), eq(9123456789L), any(), any()))
+                .thenThrow(new com.example.bankapplication.exception.WithdrawException("Insufficient Funds"));
+
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON).content(VALID_TRANSFER_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Insufficient Funds"));
+    }
+
+    @Test
+    void transfer_databaseConflict_returns409Retry() throws Exception {
+        when(bankService.transfer(eq(PHNO), eq(9123456789L), any(), any()))
+                .thenThrow(new DataIntegrityViolationException("Duplicate transaction id"));
+
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON).content(VALID_TRANSFER_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(content().string(RETRY_MESSAGE));
     }
 }

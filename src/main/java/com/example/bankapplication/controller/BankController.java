@@ -7,6 +7,7 @@ import com.example.bankapplication.dto.LoginRequest;
 import com.example.bankapplication.dto.LoginResponse;
 import com.example.bankapplication.dto.RegisterRequest;
 import com.example.bankapplication.dto.SetPinRequest;
+import com.example.bankapplication.dto.TransferRequest;
 import com.example.bankapplication.dto.UpdatePhoneRequest;
 import com.example.bankapplication.entity.Bank;
 import com.example.bankapplication.entity.BankTransaction;
@@ -168,6 +169,12 @@ public class BankController {
     @GetMapping("/transactions")
     public List<BankTransaction> displayTransactionByPhno(@RequestParam long phno){
         return bankService.displayTransactionByPhno(phno);
+    }
+
+    @PostMapping("/transfer")
+    public String transfer(@Valid @RequestBody TransferRequest request) {
+        BigDecimal amount = requirePositiveAmount(request.amount());
+        return bankService.transfer(request.payerPhno(), request.receiverPhno(), amount, request.idempotencyKey());
     }
 
     @PutMapping("/admin/set-pin")
