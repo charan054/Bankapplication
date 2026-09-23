@@ -4,8 +4,10 @@ import com.example.bankapplication.dto.LoginResponse;
 import com.example.bankapplication.dto.RegisterRequest;
 import com.example.bankapplication.entity.Bank;
 import com.example.bankapplication.entity.BankTransaction;
+import com.example.bankapplication.entity.Transfer;
 import com.example.bankapplication.exception.AccountLockedException;
 import com.example.bankapplication.exception.InvalidCredentialsException;
+import com.example.bankapplication.exception.InvalidRequestException;
 import com.example.bankapplication.exception.MobileNumberException;
 import com.example.bankapplication.exception.PinNotSetException;
 import com.example.bankapplication.exception.UserExistException;
@@ -14,6 +16,7 @@ import com.example.bankapplication.exception.WithdrawException;
 import com.example.bankapplication.kafka.BankKafkaProducer;
 import com.example.bankapplication.repository.BankRepository;
 import com.example.bankapplication.repository.BankTransactionRepository;
+import com.example.bankapplication.repository.TransferRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -30,6 +33,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -52,6 +57,8 @@ class BankServiceTest {
     private BankRepository userRepository;
     @Mock
     private BankTransactionRepository bankTransactionRepository;
+    @Mock
+    private TransferRepository transferRepository;
     @Mock
     private BankKafkaProducer bankKafkaProducer;
     @Mock
@@ -487,6 +494,115 @@ class BankServiceTest {
         assertThrows(UserNotFoundException.class, () -> bankService.withdrawByphno(9999999999L, money(100)));
 
         verifyNoInteractions(bankKafkaProducer);
+        verifyNoInteractions(bankTransactionRepository);
+    }
+
+    // ---------- transfer ----------
+
+    @Test
+    void transfer_movesMoneyBetweenBothAccounts_inOneGo() {
+        Bank payer = bank(1000000000L, 9876543210L, 111111111111L, 1000);
+        Bank receiver = bank(1000000001L, 9123456789L, 222222222222L, 200);
+        when(userRepository.findByphno(9876543210L)).thenReturn(payer);
+        when(userRepository.findByphno(9123456789L)).thenReturn(receiver);
+        when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
+        when(bankTransactionRepository.findAll()).thenReturn(List.of());
+
+        String result = bankService.transfer(9876543210L, 9123456789L, money(250), "key-1");
+
+        assertEquals("Transfer Successful Amount Inr : 250.0", result);
+        assertMoney(750, payer.getBalance());
+        assertMoney(450, receiver.getBalance());
+    }
+
+    @Test
+    void transfer_recordsADebitAndACreditWithDifferentTransactionIds() {
+        Bank payer = bank(1000000000L, 9876543210L, 111111111111L, 1000);
+        Bank receiver = bank(1000000001L, 9123456789L, 222222222222L, 0);
+        when(userRepository.findByphno(9876543210L)).thenReturn(payer);
+        when(userRepository.findByphno(9123456789L)).thenReturn(receiver);
+        when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
+        when(bankTransactionRepository.findAll()).thenReturn(List.of(txnWithId(100005)));
+
+        bankService.transfer(9876543210L, 9123456789L, money(250), "key-1");
+
+        ArgumentCaptor<BankTransaction> captor = ArgumentCaptor.forClass(BankTransaction.class);
+        verify(bankTransactionRepository, org.mockito.Mockito.times(2)).save(captor.capture());
+        List<BankTransaction> saved = captor.getAllValues();
+        assertEquals("Debit", saved.get(0).getAction());
+        assertEquals(100006L, saved.get(0).getTransactionId());
+        assertEquals(9876543210L, saved.get(0).getPhno());
+        assertEquals("Credit", saved.get(1).getAction());
+        assertEquals(100007L, saved.get(1).getTransactionId());
+        assertEquals(9123456789L, saved.get(1).getPhno());
+
+        ArgumentCaptor<Transfer> transferCaptor = ArgumentCaptor.forClass(Transfer.class);
+        verify(transferRepository).save(transferCaptor.capture());
+        assertEquals(100006L, transferCaptor.getValue().getDebitTransactionId());
+        assertEquals(100007L, transferCaptor.getValue().getCreditTransactionId());
+    }
+
+    // The whole point of the idempotency key: a retry (after a timeout, say) must never move the money twice.
+    @Test
+    void transfer_sameIdempotencyKeyAgain_doesNotMoveAnyMoney_returnsTheOriginalResult() {
+        Transfer previous = new Transfer();
+        previous.setIdempotencyKey("key-1");
+        previous.setAmount(money(250));
+        when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(previous));
+
+        String result = bankService.transfer(9876543210L, 9123456789L, money(999), "key-1");
+
+        assertEquals("Transfer Successful Amount Inr : 250.0", result);
+        verifyNoInteractions(userRepository, bankTransactionRepository, bankKafkaProducer);
+    }
+
+    @Test
+    void transfer_toTheSameAccount_isRejectedBeforeTouchingTheDatabase() {
+        InvalidRequestException ex = assertThrows(InvalidRequestException.class,
+                () -> bankService.transfer(9876543210L, 9876543210L, money(10), "key-1"));
+
+        assertEquals("Cannot transfer to the same account", ex.getMessage());
+        verifyNoInteractions(userRepository, bankTransactionRepository);
+    }
+
+    @Test
+    void transfer_unknownPayer_throwsAndChangesNothing() {
+        when(userRepository.findByphno(9876543210L)).thenReturn(null);
+
+        UserNotFoundException ex = assertThrows(UserNotFoundException.class,
+                () -> bankService.transfer(9876543210L, 9123456789L, money(10), "key-1"));
+
+        assertEquals("Payer not found", ex.getMessage());
+        verifyNoInteractions(bankTransactionRepository);
+    }
+
+    @Test
+    void transfer_unknownReceiver_throwsAndChangesNothing() {
+        Bank payer = bank(1000000000L, 9876543210L, 111111111111L, 1000);
+        when(userRepository.findByphno(9876543210L)).thenReturn(payer);
+        when(userRepository.findByphno(9123456789L)).thenReturn(null);
+
+        UserNotFoundException ex = assertThrows(UserNotFoundException.class,
+                () -> bankService.transfer(9876543210L, 9123456789L, money(10), "key-1"));
+
+        assertEquals("Receiver not found", ex.getMessage());
+        assertMoney(1000, payer.getBalance());   // the payer was never touched
+        verifyNoInteractions(bankTransactionRepository);
+    }
+
+    @Test
+    void transfer_insufficientFunds_throwsAndChangesNothing() {
+        Bank payer = bank(1000000000L, 9876543210L, 111111111111L, 100);
+        Bank receiver = bank(1000000001L, 9123456789L, 222222222222L, 0);
+        when(userRepository.findByphno(9876543210L)).thenReturn(payer);
+        when(userRepository.findByphno(9123456789L)).thenReturn(receiver);
+
+        WithdrawException ex = assertThrows(WithdrawException.class,
+                () -> bankService.transfer(9876543210L, 9123456789L, money(500), "key-1"));
+
+        assertEquals("Insufficient Funds", ex.getMessage());
+        assertMoney(100, payer.getBalance());
+        assertMoney(0, receiver.getBalance());
         verifyNoInteractions(bankTransactionRepository);
     }
 
