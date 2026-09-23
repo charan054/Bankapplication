@@ -456,20 +456,20 @@ class BankControllerTest {
     }
 
     @Test
-    void getByPhno_unknownUser_returns400WithMessage() throws Exception {
+    void getByPhno_unknownUser_returns404WithMessage() throws Exception {
         when(bankService.findByphno(PHNO)).thenReturn(null);
 
         mockMvc.perform(asAdmin(get("/bank/getByphno/{phno}", PHNO)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
     @Test
-    void getByAcno_unknownUser_returns400WithMessage() throws Exception {
+    void getByAcno_unknownUser_returns404WithMessage() throws Exception {
         when(bankService.findByacno(ACNO)).thenReturn(null);
 
         mockMvc.perform(asAdmin(get("/bank/getByacno/{acno}", ACNO)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
@@ -616,11 +616,11 @@ class BankControllerTest {
     }
 
     @Test
-    void withdrawByphno_unknownUser_returns400() throws Exception {
+    void withdrawByphno_unknownUser_returns404() throws Exception {
         when(bankService.findByphno(PHNO)).thenReturn(null);
 
         mockMvc.perform(asAdmin(put("/bank/withdrawByphno")).param("phno", "" + PHNO).param("balance", "10"))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
@@ -661,11 +661,11 @@ class BankControllerTest {
     }
 
     @Test
-    void withdrawByacno_unknownUser_returns400() throws Exception {
+    void withdrawByacno_unknownUser_returns404() throws Exception {
         when(bankService.findByacno(ACNO)).thenReturn(null);
 
         mockMvc.perform(asAdmin(put("/bank/withdrawByacno")).param("acno", "" + ACNO).param("balance", "10"))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
@@ -691,11 +691,11 @@ class BankControllerTest {
     }
 
     @Test
-    void depositByphno_unknownUser_returns400() throws Exception {
+    void depositByphno_unknownUser_returns404() throws Exception {
         when(bankService.depositByphno(anyLong(), any())).thenThrow(new UserNotFoundException("User not found"));
 
         mockMvc.perform(asAdmin(put("/bank/depositByphno")).param("phno", "" + PHNO).param("balance", "10"))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
@@ -758,11 +758,11 @@ class BankControllerTest {
     }
 
     @Test
-    void deleteUser_unknownUser_returns400() throws Exception {
+    void deleteUser_unknownUser_returns404() throws Exception {
         doThrow(new UserNotFoundException("User not found")).when(bankService).deleteByPhno(PHNO);
 
         mockMvc.perform(asAdmin(delete("/bank/deleteuser")).param("phno", "" + PHNO))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
@@ -779,11 +779,11 @@ class BankControllerTest {
     }
 
     @Test
-    void displayUser_unknownUser_returns400() throws Exception {
+    void displayUser_unknownUser_returns404() throws Exception {
         when(bankService.displayUserByPhno(PHNO)).thenThrow(new UserNotFoundException("User not found"));
 
         mockMvc.perform(asAdmin(get("/bank/displayuser")).param("phno", "" + PHNO))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
@@ -840,12 +840,12 @@ class BankControllerTest {
     }
 
     @Test
-    void setPin_unknownUser_returns400() throws Exception {
+    void setPin_unknownUser_returns404() throws Exception {
         doThrow(new UserNotFoundException("User not found")).when(bankService).setPin(PHNO, "5678");
 
         mockMvc.perform(asAdmin(put("/bank/admin/set-pin")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"phno\":9876543210,\"newPin\":\"5678\"}"))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("User not found"));
     }
 
@@ -906,12 +906,12 @@ class BankControllerTest {
     }
 
     @Test
-    void transfer_unknownReceiver_returns400() throws Exception {
+    void transfer_unknownReceiver_returns404() throws Exception {
         when(bankService.transfer(eq(PHNO), eq(9123456789L), any(), any()))
                 .thenThrow(new UserNotFoundException("Receiver not found"));
 
         mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON).content(VALID_TRANSFER_JSON))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().string("Receiver not found"));
     }
 
