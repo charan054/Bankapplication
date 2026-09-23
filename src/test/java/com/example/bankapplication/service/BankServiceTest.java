@@ -1,6 +1,8 @@
 package com.example.bankapplication.service;
 
+import com.example.bankapplication.dto.BankDto;
 import com.example.bankapplication.dto.LoginResponse;
+import com.example.bankapplication.dto.PageResponse;
 import com.example.bankapplication.dto.RegisterRequest;
 import com.example.bankapplication.entity.Bank;
 import com.example.bankapplication.entity.BankTransaction;
@@ -25,6 +27,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
@@ -667,16 +672,50 @@ class BankServiceTest {
     @Test
     void displayTransactionByPhno_returnsUsersTransactions() {
         Bank user = bank(1000000000L, 9876543210L, 123456789012L, 0);
-        user.setTransactions(List.of(txnWithId(100000)));
         when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(bankTransactionRepository.findByPhno(eq(9876543210L), any()))
+                .thenReturn(new PageImpl<>(List.of(txnWithId(100000))));
 
-        assertEquals(1, bankService.displayTransactionByPhno(9876543210L).size());
+        assertEquals(1, bankService.displayTransactionByPhno(9876543210L, 0, 20).content().size());
     }
 
     @Test
     void displayTransactionByPhno_unknownUser_throwsUserNotFound() {
         when(userRepository.findByphno(9999999999L)).thenReturn(null);
 
-        assertThrows(UserNotFoundException.class, () -> bankService.displayTransactionByPhno(9999999999L));
+        assertThrows(UserNotFoundException.class, () -> bankService.displayTransactionByPhno(9999999999L, 0, 20));
+    }
+
+    @Test
+    void displayTransactionByPhno_negativePage_throwsInvalidRequest() {
+        when(userRepository.findByphno(9876543210L)).thenReturn(bank(1000000000L, 9876543210L, 123456789012L, 0));
+
+        assertThrows(InvalidRequestException.class, () -> bankService.displayTransactionByPhno(9876543210L, -1, 20));
+    }
+
+    @Test
+    void displayTransactionByPhno_sizeTooLarge_throwsInvalidRequest() {
+        when(userRepository.findByphno(9876543210L)).thenReturn(bank(1000000000L, 9876543210L, 123456789012L, 0));
+
+        assertThrows(InvalidRequestException.class,
+                () -> bankService.displayTransactionByPhno(9876543210L, 0, BankService.MAX_PAGE_SIZE + 1));
+    }
+
+    @Test
+    void findAll_returnsAPageOfUsers() {
+        Bank user = bank(1000000000L, 9876543210L, 123456789012L, 250.0);
+        when(userRepository.findAll(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(user), PageRequest.of(0, 20), 1));
+
+        PageResponse<BankDto> result = bankService.findAll(0, 20);
+
+        assertEquals(1, result.content().size());
+        assertEquals(1, result.totalElements());
+        assertEquals(0, result.page());
+    }
+
+    @Test
+    void findAll_invalidSize_throwsInvalidRequest() {
+        assertThrows(InvalidRequestException.class, () -> bankService.findAll(0, 0));
     }
 }

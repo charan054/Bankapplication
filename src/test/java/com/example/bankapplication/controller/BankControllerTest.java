@@ -3,6 +3,7 @@ package com.example.bankapplication.controller;
 import com.example.bankapplication.configuration.ClockConfig;
 import com.example.bankapplication.configuration.WebConfig;
 import com.example.bankapplication.dto.BankDto;
+import com.example.bankapplication.dto.PageResponse;
 import com.example.bankapplication.entity.Bank;
 import com.example.bankapplication.entity.BankTransaction;
 import com.example.bankapplication.exception.MobileNumberException;
@@ -31,6 +32,7 @@ import java.math.RoundingMode;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -92,6 +94,10 @@ class BankControllerTest {
     // "400" and "400.00" are numerically equal but NOT .equals(), which is what Mockito's default matching uses).
     private static BigDecimal normalized(double v) {
         return BigDecimal.valueOf(v).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static <T> PageResponse<T> pageOf(List<T> items) {
+        return new PageResponse<>(items, 0, items.size(), items.size(), 1);
     }
 
     private Bank bankWithBalance(double balance) {
@@ -362,13 +368,13 @@ class BankControllerTest {
         BankTransaction t = new BankTransaction();
         t.setTransactionId(100000);
         t.setAction("Credit");
-        when(bankService.displayTransactionByPhno(PHNO)).thenReturn(List.of(t));
+        when(bankService.displayTransactionByPhno(eq(PHNO), anyInt(), anyInt())).thenReturn(pageOf(List.of(t)));
 
         mockMvc.perform(asCaller(get("/bank/my-transactions")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].action").value("Credit"));
+                .andExpect(jsonPath("$.content[0].action").value("Credit"));
 
-        verify(bankService, never()).displayTransactionByPhno(9000000001L);
+        verify(bankService, never()).displayTransactionByPhno(eq(9000000001L), anyInt(), anyInt());
     }
 
     @Test
@@ -383,14 +389,33 @@ class BankControllerTest {
 
     @Test
     void getAll_withAdminKey_returnsListOfDtos() throws Exception {
-        when(bankService.findAll()).thenReturn(List.of(
-                new BankDto(1, ACNO, "KUMAR CHARAN", 123456789012L, PHNO, money(500))));
+        when(bankService.findAll(anyInt(), anyInt())).thenReturn(pageOf(List.of(
+                new BankDto(1, ACNO, "KUMAR CHARAN", 123456789012L, PHNO, money(500)))));
 
         mockMvc.perform(asAdmin(get("/bank/all")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].name").value("KUMAR CHARAN"))
-                .andExpect(jsonPath("$[0].acno").value(ACNO))
-                .andExpect(jsonPath("$[0].balance").value(500.0));
+                .andExpect(jsonPath("$.content[0].name").value("KUMAR CHARAN"))
+                .andExpect(jsonPath("$.content[0].acno").value(ACNO))
+                .andExpect(jsonPath("$.content[0].balance").value(500.0));
+    }
+
+    @Test
+    void getAll_passesPageAndSizeThrough() throws Exception {
+        when(bankService.findAll(2, 5)).thenReturn(pageOf(List.of()));
+
+        mockMvc.perform(asAdmin(get("/bank/all")).param("page", "2").param("size", "5"))
+                .andExpect(status().isOk());
+
+        verify(bankService).findAll(2, 5);
+    }
+
+    @Test
+    void getAll_defaultsToPageZeroAndTheDefaultSize() throws Exception {
+        when(bankService.findAll(0, BankService.DEFAULT_PAGE_SIZE)).thenReturn(pageOf(List.of()));
+
+        mockMvc.perform(asAdmin(get("/bank/all"))).andExpect(status().isOk());
+
+        verify(bankService).findAll(0, BankService.DEFAULT_PAGE_SIZE);
     }
 
     // ---------- GET by phno / acno ----------
@@ -756,13 +781,23 @@ class BankControllerTest {
         t.setAction("Credit");
         t.setAmount(money(250));
         t.setBalance(money(750));
-        when(bankService.displayTransactionByPhno(PHNO)).thenReturn(List.of(t));
+        when(bankService.displayTransactionByPhno(eq(PHNO), anyInt(), anyInt())).thenReturn(pageOf(List.of(t)));
 
         mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].action").value("Credit"))
-                .andExpect(jsonPath("$[0].transactionId").value(100000))
-                .andExpect(jsonPath("$[0].amount").value(250.0));
+                .andExpect(jsonPath("$.content[0].action").value("Credit"))
+                .andExpect(jsonPath("$.content[0].transactionId").value(100000))
+                .andExpect(jsonPath("$.content[0].amount").value(250.0));
+    }
+
+    @Test
+    void transactions_passesPageAndSizeThrough() throws Exception {
+        when(bankService.displayTransactionByPhno(PHNO, 1, 10)).thenReturn(pageOf(List.of()));
+
+        mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO).param("page", "1").param("size", "10"))
+                .andExpect(status().isOk());
+
+        verify(bankService).displayTransactionByPhno(PHNO, 1, 10);
     }
 
     // ---------- PUT /bank/admin/set-pin ----------
