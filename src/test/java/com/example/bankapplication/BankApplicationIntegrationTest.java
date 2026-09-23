@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -432,6 +433,35 @@ class BankApplicationIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].transactionId").value(100002));
+    }
+
+    @Test
+    void transactions_canBeFilteredByDateRange() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        depositByPhno(PHNO_A, "100");
+
+        BankTransaction stored = bankTransactionRepository.findAll().get(0);
+        stored.setCreatedAt(Instant.parse("2020-01-01T00:00:00Z"));
+        bankTransactionRepository.save(stored);
+
+        mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_A)
+                        .param("from", "2026-01-01T00:00:00Z"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0));
+
+        mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_A)
+                        .param("to", "2026-01-01T00:00:00Z"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1));
+    }
+
+    @Test
+    void transactions_fromAfterTo_returns400() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+
+        mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_A)
+                        .param("from", "2026-02-01T00:00:00Z").param("to", "2026-01-01T00:00:00Z"))
+                .andExpect(status().isBadRequest());
     }
 
     // ---------- update / delete ----------

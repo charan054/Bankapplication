@@ -29,12 +29,14 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -368,13 +370,26 @@ class BankControllerTest {
         BankTransaction t = new BankTransaction();
         t.setTransactionId(100000);
         t.setAction("Credit");
-        when(bankService.displayTransactionByPhno(eq(PHNO), anyInt(), anyInt())).thenReturn(pageOf(List.of(t)));
+        when(bankService.displayTransactionByPhno(eq(PHNO), anyInt(), anyInt(), isNull(), isNull())).thenReturn(pageOf(List.of(t)));
 
         mockMvc.perform(asCaller(get("/bank/my-transactions")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].action").value("Credit"));
 
-        verify(bankService, never()).displayTransactionByPhno(eq(9000000001L), anyInt(), anyInt());
+        verify(bankService, never()).displayTransactionByPhno(eq(9000000001L), anyInt(), anyInt(), any(), any());
+    }
+
+    @Test
+    void myTransactions_passesFromAndToThrough() throws Exception {
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to = Instant.parse("2026-01-31T00:00:00Z");
+        when(bankService.displayTransactionByPhno(PHNO, 0, 20, from, to)).thenReturn(pageOf(List.of()));
+
+        mockMvc.perform(asCaller(get("/bank/my-transactions"))
+                        .param("from", from.toString()).param("to", to.toString()))
+                .andExpect(status().isOk());
+
+        verify(bankService).displayTransactionByPhno(PHNO, 0, 20, from, to);
     }
 
     @Test
@@ -781,7 +796,7 @@ class BankControllerTest {
         t.setAction("Credit");
         t.setAmount(money(250));
         t.setBalance(money(750));
-        when(bankService.displayTransactionByPhno(eq(PHNO), anyInt(), anyInt())).thenReturn(pageOf(List.of(t)));
+        when(bankService.displayTransactionByPhno(eq(PHNO), anyInt(), anyInt(), isNull(), isNull())).thenReturn(pageOf(List.of(t)));
 
         mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO))
                 .andExpect(status().isOk())
@@ -792,12 +807,25 @@ class BankControllerTest {
 
     @Test
     void transactions_passesPageAndSizeThrough() throws Exception {
-        when(bankService.displayTransactionByPhno(PHNO, 1, 10)).thenReturn(pageOf(List.of()));
+        when(bankService.displayTransactionByPhno(PHNO, 1, 10, null, null)).thenReturn(pageOf(List.of()));
 
         mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO).param("page", "1").param("size", "10"))
                 .andExpect(status().isOk());
 
-        verify(bankService).displayTransactionByPhno(PHNO, 1, 10);
+        verify(bankService).displayTransactionByPhno(PHNO, 1, 10, null, null);
+    }
+
+    @Test
+    void transactions_passesFromAndToThrough() throws Exception {
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to = Instant.parse("2026-01-31T00:00:00Z");
+        when(bankService.displayTransactionByPhno(PHNO, 0, 20, from, to)).thenReturn(pageOf(List.of()));
+
+        mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO)
+                        .param("from", from.toString()).param("to", to.toString()))
+                .andExpect(status().isOk());
+
+        verify(bankService).displayTransactionByPhno(PHNO, 0, 20, from, to);
     }
 
     // ---------- PUT /bank/admin/set-pin ----------

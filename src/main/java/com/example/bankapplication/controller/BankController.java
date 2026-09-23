@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -94,8 +95,10 @@ public class BankController {
     @GetMapping("/my-transactions")
     public PageResponse<BankTransaction> myTransactions(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
                           @RequestParam(defaultValue = "0") int page,
-                          @RequestParam(defaultValue = "" + BankService.DEFAULT_PAGE_SIZE) int size) {
-        return bankService.displayTransactionByPhno(phno, page, size);
+                          @RequestParam(defaultValue = "" + BankService.DEFAULT_PAGE_SIZE) int size,
+                          @RequestParam(required = false) Instant from,
+                          @RequestParam(required = false) Instant to) {
+        return bankService.displayTransactionByPhno(phno, page, size, from, to);
     }
 
     @DeleteMapping("/me")
@@ -173,8 +176,10 @@ public class BankController {
     @GetMapping("/transactions")
     public PageResponse<BankTransaction> displayTransactionByPhno(@RequestParam long phno,
                           @RequestParam(defaultValue = "0") int page,
-                          @RequestParam(defaultValue = "" + BankService.DEFAULT_PAGE_SIZE) int size){
-        return bankService.displayTransactionByPhno(phno, page, size);
+                          @RequestParam(defaultValue = "" + BankService.DEFAULT_PAGE_SIZE) int size,
+                          @RequestParam(required = false) Instant from,
+                          @RequestParam(required = false) Instant to){
+        return bankService.displayTransactionByPhno(phno, page, size, from, to);
     }
 
     @PostMapping("/transfer")
