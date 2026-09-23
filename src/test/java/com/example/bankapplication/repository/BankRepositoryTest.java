@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -101,6 +102,37 @@ class BankRepositoryTest {
     @Test
     void findByacno_unknownAccount_returnsNull() {
         assertNull(bankRepository.findByacno(1234L));
+    }
+
+    // ---------- existence checks and the max account number, used by register()/updatePhno() ----------
+
+    @Test
+    void existsByPhno_trueOnlyForARegisteredNumber() {
+        bankRepository.save(newBank(1000000000L, 9876543210L, 111111111111L, 0));
+
+        assertTrue(bankRepository.existsByPhno(9876543210L));
+        assertFalse(bankRepository.existsByPhno(9999999999L));
+    }
+
+    @Test
+    void existsByAadharNumber_trueOnlyForARegisteredAadhar() {
+        bankRepository.save(newBank(1000000000L, 9876543210L, 111111111111L, 0));
+
+        assertTrue(bankRepository.existsByAadharNumber(111111111111L));
+        assertFalse(bankRepository.existsByAadharNumber(999999999999L));
+    }
+
+    @Test
+    void findMaxAcno_isNullWhenThereAreNoUsers() {
+        assertNull(bankRepository.findMaxAcno());
+    }
+
+    @Test
+    void findMaxAcno_isTheHighestAccountNumber_notTheLastRowInserted() {
+        bankRepository.save(newBank(1000000005L, 9876543210L, 111111111111L, 0));
+        bankRepository.save(newBank(1000000002L, 9123456789L, 222222222222L, 0));
+
+        assertEquals(1000000005L, bankRepository.findMaxAcno());
     }
 
     // ---------- persistence details ----------

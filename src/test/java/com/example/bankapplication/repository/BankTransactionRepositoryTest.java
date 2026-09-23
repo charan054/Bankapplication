@@ -15,6 +15,7 @@ import org.springframework.test.context.ActiveProfiles;
 import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DataJpaTest
@@ -103,5 +104,21 @@ class BankTransactionRepositoryTest {
 
         assertTrue(page.getContent().isEmpty());
         assertEquals(0, page.getTotalElements());
+    }
+
+    // ---------- the highest transaction number, used to allocate the next one ----------
+
+    @Test
+    void findMaxTransactionId_isNullWhenThereAreNoTransactions() {
+        assertNull(repository.findMaxTransactionId());
+    }
+
+    @Test
+    void findMaxTransactionId_isTheHighestNumber_notTheLastRowInserted() {
+        repository.save(txn(100005, userIdA, 9876543210L, "Credit", 10, 10));
+        repository.save(txn(100002, userIdA, 9876543210L, "Credit", 10, 20));
+        repository.save(txn(100003, userIdA, 9876543210L, "Credit", 10, 30));
+
+        assertEquals(100005L, repository.findMaxTransactionId());
     }
 }
