@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -144,7 +145,7 @@ public class BankService {
         user.setLastName(request.lastName());
         user.setAadharNumber(request.aadharNumber());
         user.setPhno(request.phno());
-        user.setBalance(0);
+        user.setBalance(BigDecimal.valueOf(0, 2));
 
         long phno=user.getPhno();
         String x=""+phno;
@@ -192,13 +193,13 @@ public class BankService {
     }
 
     @Transactional
-    public String withdrawByphno(long phno, double amount)
+    public String withdrawByphno(long phno, BigDecimal amount)
     {
         Bank exis=userRepository.findByphno(phno);
         if(exis!=null)
         {
             checkSufficientFunds(exis,amount);
-            exis.setBalance(exis.getBalance()-amount);
+            exis.setBalance(exis.getBalance().subtract(amount));
             BankTransaction b=new BankTransaction();
             b.setPhno(phno);
             b.setAmount(amount);
@@ -223,13 +224,13 @@ public class BankService {
         return "Withdraw Successful Amount Inr : "+amount;
     }
     @Transactional
-    public  String withdrawByacno(long acno, double amount)
+    public  String withdrawByacno(long acno, BigDecimal amount)
     {
         Bank exis=userRepository.findByacno(acno);
         if(exis!=null)
         {
             checkSufficientFunds(exis,amount);
-            exis.setBalance(exis.getBalance()-amount);
+            exis.setBalance(exis.getBalance().subtract(amount));
             BankTransaction b=new BankTransaction();
             b.setPhno(userRepository.findByacno(acno).getPhno());
             b.setAmount(amount);
@@ -253,12 +254,12 @@ public class BankService {
         return "Withdraw Successful Amount Inr : "+amount;
     }
     @Transactional
-    public String depositByphno(long phno, double amount)
+    public String depositByphno(long phno, BigDecimal amount)
     {
         Bank exis=userRepository.findByphno(phno);
         if(exis!=null)
         {
-            exis.setBalance(exis.getBalance()+amount);
+            exis.setBalance(exis.getBalance().add(amount));
             BankTransaction b=new BankTransaction();
             b.setPhno(phno);
             b.setAmount(amount);
@@ -282,12 +283,12 @@ public class BankService {
         return "Deposit Successful Amount Inr : "+amount;
     }
     @Transactional
-    public String depositByacno(long acno, double amount)
+    public String depositByacno(long acno, BigDecimal amount)
     {
         Bank exis=userRepository.findByacno(acno);
         if(exis!=null)
         {
-            exis.setBalance(exis.getBalance()+amount);
+            exis.setBalance(exis.getBalance().add(amount));
             BankTransaction b=new BankTransaction();
             b.setPhno(userRepository.findByacno(acno).getPhno());
             b.setAmount(amount);
@@ -349,9 +350,9 @@ public class BankService {
     }
     // Checked here, inside the transaction, against the balance we are about to change. The controller's earlier
     // check can be stale by now; together with @Version this makes an overdraft impossible.
-    private void checkSufficientFunds(Bank account, double amount)
+    private void checkSufficientFunds(Bank account, BigDecimal amount)
     {
-        if(amount>account.getBalance())
+        if(amount.compareTo(account.getBalance())>0)
         {
             throw new WithdrawException("Insufficient Funds");
         }

@@ -20,6 +20,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -109,6 +110,11 @@ class BankApplicationIntegrationTest {
         mockMvc.perform(asAdmin(get("/bank/displayuser")).param("phno", "" + phno))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.balance").value(expected));
+    }
+
+    // BigDecimal.equals() is scale-sensitive ("1000" != "1000.00" though numerically equal); compareTo() is not.
+    private void assertMoney(double expected, BigDecimal actual) {
+        assertEquals(0, BigDecimal.valueOf(expected).compareTo(actual), () -> expected + " != " + actual);
     }
 
     private String login(long phno, String pin) throws Exception {
@@ -303,7 +309,7 @@ class BankApplicationIntegrationTest {
         depositByPhno(PHNO_A, "1000");
         mockMvc.perform(asAdmin(put("/bank/withdrawByphno")).param("phno", "" + PHNO_A).param("balance", "400"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("Withdraw Successful Amount Inr : 400.0"));
+                .andExpect(content().string("Withdraw Successful Amount Inr : 400.00"));
 
         balanceShouldBe(PHNO_A, 600.0);
 
@@ -427,7 +433,7 @@ class BankApplicationIntegrationTest {
         assertThrows(Exception.class, () ->
                 mockMvc.perform(asAdmin(put("/bank/withdrawByphno")).param("phno", "" + PHNO_A).param("balance", "400")));
 
-        assertEquals(1000.0, bankRepository.findByphno(PHNO_A).getBalance());
+        assertMoney(1000.0, bankRepository.findByphno(PHNO_A).getBalance());
         assertEquals(1, bankTransactionRepository.count());            // only the earlier deposit
         verify(bankKafkaProducer, never()).sendMessage(any());
     }
@@ -441,7 +447,7 @@ class BankApplicationIntegrationTest {
         assertThrows(Exception.class, () ->
                 mockMvc.perform(asAdmin(put("/bank/depositByphno")).param("phno", "" + PHNO_A).param("balance", "500")));
 
-        assertEquals(0.0, bankRepository.findByphno(PHNO_A).getBalance());
+        assertMoney(0.0, bankRepository.findByphno(PHNO_A).getBalance());
         assertEquals(0, bankTransactionRepository.count());
         verify(bankKafkaProducer, never()).sendMessage(any());
     }
@@ -511,7 +517,7 @@ class BankApplicationIntegrationTest {
         assertTrue(statuses.stream().allMatch(s -> s == 200 || s == 409), "unexpected statuses: " + statuses);
         assertTrue(succeeded >= 1, "at least one deposit must win: " + statuses);
         // every deposit the client was told succeeded is in the balance, and nothing else is
-        assertEquals(10.0 * succeeded, bankRepository.findByphno(PHNO_A).getBalance());
+        assertMoney(10.0 * succeeded, bankRepository.findByphno(PHNO_A).getBalance());
         assertEquals(succeeded, bankTransactionRepository.count());
         long distinctIds = bankTransactionRepository.findAll().stream().map(BankTransaction::getTransactionId).distinct().count();
         assertEquals(succeeded, distinctIds);
@@ -529,9 +535,9 @@ class BankApplicationIntegrationTest {
         long succeeded = statuses.stream().filter(s -> s == 200).count();
         assertTrue(statuses.stream().allMatch(s -> s == 200 || s == 400 || s == 409), "unexpected statuses: " + statuses);
         assertTrue(succeeded <= 3, "1000 can fund at most three withdrawals of 300, but " + succeeded + " succeeded");
-        double balance = bankRepository.findByphno(PHNO_A).getBalance();
-        assertTrue(balance >= 0, "account went negative: " + balance);
-        assertEquals(1000.0 - 300.0 * succeeded, balance);
+        BigDecimal balance = bankRepository.findByphno(PHNO_A).getBalance();
+        assertTrue(balance.signum() >= 0, "account went negative: " + balance);
+        assertMoney(1000.0 - 300.0 * succeeded, balance);
         assertEquals(1 + succeeded, bankTransactionRepository.count());   // the deposit + each successful withdrawal
     }
 
