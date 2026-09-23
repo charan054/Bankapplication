@@ -152,12 +152,7 @@ public class BankService {
         user.setPhno(request.phno());
         user.setBalance(BigDecimal.valueOf(0, 2));
 
-        long phno=user.getPhno();
-        String x=""+phno;
-        if(x.length()!=10||!x.matches("^[6-9].*"))
-        {
-            throw new MobileNumberException("Invalid mobile number");
-        }
+        requireValidPhone(user.getPhno());
         long aadharNumber= user.getAadharNumber();
         String y=""+aadharNumber;
         if(y.length()!=12)
@@ -361,6 +356,7 @@ public class BankService {
     @Transactional
     public Bank updatePhno(long phno,long newphno)
     {
+        requireValidPhone(newphno);
         if(userRepository.existsByPhno(newphno))
         {
             throw new UserExistException("Phone number already exist");
@@ -409,6 +405,18 @@ public class BankService {
     {
         Long highest = bankTransactionRepository.findMaxTransactionId();
         return highest == null ? 100000 : highest + 1;
+    }
+    // Shared by register() (a brand new number) and updatePhno() (a number swapped in later) - both must be a
+    // real 10-digit Indian mobile number, not just anything unique. updatePhno() previously skipped this check
+    // entirely, so an admin call (or the self-service /bank/update-phone endpoint) could silently set an
+    // account's phone number to 0 or any other garbage value as long as it wasn't already taken.
+    private static void requireValidPhone(long phno)
+    {
+        String x = "" + phno;
+        if (x.length() != 10 || !x.matches("^[6-9].*"))
+        {
+            throw new MobileNumberException("Invalid mobile number");
+        }
     }
     // Kafka is told only AFTER the database commit succeeds, so a rolled-back payment never produces a
     // "success" message, and a Kafka outage can never fail or undo a payment that already went through.
