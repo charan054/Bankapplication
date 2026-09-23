@@ -15,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -51,10 +52,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * End-to-end tests: real controller + real service + real JPA + in-memory H2 + real BCrypt.
  * Only Kafka is faked, so no broker is needed. ADMIN_KEY/SERVICE_KEY come from application-test.properties.
  */
+// Login is rate-limited per address (see WebConfig); this suite legitimately logs the same few simulated
+// customers in and out many times over its run, all from MockMvc's one default address, so it needs a much
+// higher budget than production traffic from one real address would ever need.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.ANY)
+@TestPropertySource(properties = "bank.login.rate-limit.max-attempts=1000")
 class BankApplicationIntegrationTest {
 
     private static final long PHNO_A = 9876543210L;

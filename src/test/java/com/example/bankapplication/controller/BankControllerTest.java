@@ -1,5 +1,6 @@
 package com.example.bankapplication.controller;
 
+import com.example.bankapplication.configuration.ClockConfig;
 import com.example.bankapplication.configuration.WebConfig;
 import com.example.bankapplication.dto.BankDto;
 import com.example.bankapplication.entity.Bank;
@@ -48,7 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // "test" profile: gives spring.datasource.password / bank.admin.api-key / bank.service.api-key values, so these
 // tests don't need those set on the machine (see src/test/resources/application-test.properties).
 @WebMvcTest(BankController.class)
-@Import(WebConfig.class)
+@Import({WebConfig.class, ClockConfig.class})
 @ActiveProfiles("test")
 class BankControllerTest {
 
@@ -240,6 +241,46 @@ class BankControllerTest {
 
         mockMvc.perform(post("/bank/login").contentType(MediaType.APPLICATION_JSON).content("{\"phno\":9876543210,\"pin\":\"0000\"}"))
                 .andExpect(status().isLocked());
+    }
+
+    // ============ POST /bank/login: rate limiting per address ============
+
+    @Test
+    @org.springframework.test.annotation.DirtiesContext(methodMode = org.springframework.test.annotation.DirtiesContext.MethodMode.AFTER_METHOD)
+    void login_tooManyAttemptsFromTheSameAddress_is429() throws Exception {
+        when(bankService.login(PHNO, "0000")).thenThrow(new com.example.bankapplication.exception.InvalidCredentialsException("Invalid phone number or PIN"));
+
+        for (int i = 0; i < WebConfig.DEFAULT_MAX_LOGIN_ATTEMPTS_PER_ADDRESS; i++) {
+            mockMvc.perform(loginAttempt().with(fromAddress("203.0.113.5"))).andExpect(status().isUnauthorized());
+        }
+
+        mockMvc.perform(loginAttempt().with(fromAddress("203.0.113.5")))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(content().string("Too many attempts from this address. Please wait a minute and try again."));
+    }
+
+    @Test
+    @org.springframework.test.annotation.DirtiesContext(methodMode = org.springframework.test.annotation.DirtiesContext.MethodMode.AFTER_METHOD)
+    void login_rateLimitIsPerAddress_anotherAddressIsUnaffected() throws Exception {
+        when(bankService.login(PHNO, "0000")).thenThrow(new com.example.bankapplication.exception.InvalidCredentialsException("Invalid phone number or PIN"));
+
+        for (int i = 0; i < WebConfig.DEFAULT_MAX_LOGIN_ATTEMPTS_PER_ADDRESS; i++) {
+            mockMvc.perform(loginAttempt().with(fromAddress("203.0.113.5"))).andExpect(status().isUnauthorized());
+        }
+        mockMvc.perform(loginAttempt().with(fromAddress("203.0.113.5"))).andExpect(status().isTooManyRequests());
+
+        mockMvc.perform(loginAttempt().with(fromAddress("203.0.113.9"))).andExpect(status().isUnauthorized());
+    }
+
+    private static MockHttpServletRequestBuilder loginAttempt() {
+        return post("/bank/login").contentType(MediaType.APPLICATION_JSON).content("{\"phno\":9876543210,\"pin\":\"0000\"}");
+    }
+
+    private static org.springframework.test.web.servlet.request.RequestPostProcessor fromAddress(String ip) {
+        return request -> {
+            request.setRemoteAddr(ip);
+            return request;
+        };
     }
 
     // ============ POST /bank/logout ============
