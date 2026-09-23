@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Charan Banking Service</title>
+    <title>Charan Banking Service - Admin Console</title>
 
     <style>
         :root {
@@ -72,6 +72,38 @@
           width: min(1220px, calc(100% - 40px));
           margin: -46px auto 50px;
         }
+
+        .admin-key-card {
+          background: white;
+          border-radius: 22px;
+          padding: 20px 24px;
+          box-shadow: var(--shadow);
+          margin-bottom: 22px;
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .admin-key-card strong {
+          color: var(--navy);
+          white-space: nowrap;
+        }
+
+        .admin-key-card input {
+          flex: 1;
+          min-width: 220px;
+          margin-bottom: 0;
+        }
+
+        .admin-key-status {
+          font-size: 13px;
+          font-weight: 800;
+          white-space: nowrap;
+        }
+
+        .admin-key-status.set { color: var(--green); }
+        .admin-key-status.unset { color: var(--red); }
 
         .grid {
           display: grid;
@@ -229,12 +261,20 @@
 <body>
 
 <header class="hero">
-    <div class="hero-badge">🏦 Charan Banking Service</div>
+    <div class="hero-badge">🏦 Charan Banking Service — Admin Console</div>
     <h1>Charan Banking Service</h1>
     <p>Manage users, deposits, withdrawals, profile, transactions and account operations.</p>
 </header>
 
 <main class="container">
+
+    <div class="admin-key-card">
+        <strong>Admin Key</strong>
+        <input type="password" id="adminKey" placeholder="Paste the ADMIN_API_KEY value" />
+        <button style="width:auto;padding:14px 20px" onclick="saveAdminKey()">Save</button>
+        <span id="adminKeyStatus" class="admin-key-status unset">Not set</span>
+    </div>
+
     <section class="grid">
 
         <div class="card">
@@ -243,11 +283,12 @@
                 <h2>Create New User</h2>
                 <span class="method">POST</span>
             </div>
-            <p>Create a new bank user with personal and banking details. Account number will be generated automatically by backend.</p>
+            <p>Create a new bank user. Account number is generated automatically; the customer uses their PIN to log in themselves later.</p>
             <input type="text" id="firstName" placeholder="First Name" />
             <input type="text" id="lastName" placeholder="Last Name" />
             <input type="number" id="aadharNumber" placeholder="Aadhar Number" />
             <input type="number" id="phno" placeholder="Mobile Number" />
+            <input type="password" id="pin" placeholder="PIN (4-6 digits)" />
             <button class="green" onclick="saveUser()">Create User</button>
         </div>
 
@@ -257,7 +298,7 @@
                 <h2>All Users</h2>
                 <span class="method">GET</span>
             </div>
-            <p>Fetch and view all bank users in a separate result tab.</p>
+            <p>Fetch and view all bank users in a separate result tab. Requires the admin key above.</p>
             <button onclick="getAllUsers()">View All Users</button>
         </div>
 
@@ -309,27 +350,27 @@
             <button class="orange" onclick="withdrawByAcno()">Withdraw</button>
         </div>
 
-<!--        <div class="card">-->
-<!--            <div class="card-title">-->
-<!--                <div class="icon">📞</div>-->
-<!--                <h2>Search By Phone</h2>-->
-<!--                <span class="method">GET</span>-->
-<!--            </div>-->
-<!--            <p>Find a user using registered phone number.</p>-->
-<!--            <input type="number" id="searchPhno" placeholder="Enter phone number" />-->
-<!--            <button onclick="getByPhno()">Search User</button>-->
-<!--        </div>-->
+        <div class="card">
+            <div class="card-title">
+                <div class="icon">📞</div>
+                <h2>Search By Phone</h2>
+                <span class="method">GET</span>
+            </div>
+            <p>Find a user using registered phone number.</p>
+            <input type="number" id="searchPhno" placeholder="Enter phone number" />
+            <button onclick="getByPhno()">Search User</button>
+        </div>
 
-<!--        <div class="card">-->
-<!--            <div class="card-title">-->
-<!--                <div class="icon">🏧</div>-->
-<!--                <h2>Search By Account</h2>-->
-<!--                <span class="method">GET</span>-->
-<!--            </div>-->
-<!--            <p>Find a user using bank account number.</p>-->
-<!--            <input type="number" id="searchAcno" placeholder="Enter account number" />-->
-<!--            <button onclick="getByAcno()">Search User</button>-->
-<!--        </div>-->
+        <div class="card">
+            <div class="card-title">
+                <div class="icon">🏧</div>
+                <h2>Search By Account</h2>
+                <span class="method">GET</span>
+            </div>
+            <p>Find a user using bank account number.</p>
+            <input type="number" id="searchAcno" placeholder="Enter account number" />
+            <button onclick="getByAcno()">Search User</button>
+        </div>
 
         <div class="card">
             <div class="card-title">
@@ -367,6 +408,18 @@
 
         <div class="card">
             <div class="card-title">
+                <div class="icon">🔑</div>
+                <h2>Set / Reset PIN</h2>
+                <span class="method">PUT</span>
+            </div>
+            <p>Bootstrap an account created before login existed, or help a customer who forgot their PIN.</p>
+            <input type="number" id="setPinPhno" placeholder="Phone number" />
+            <input type="password" id="setPinValue" placeholder="New PIN (4-6 digits)" />
+            <button onclick="setPin()">Set PIN</button>
+        </div>
+
+        <div class="card">
+            <div class="card-title">
                 <div class="icon">🗑️</div>
                 <h2>Delete User</h2>
                 <span class="method">DELETE</span>
@@ -384,12 +437,41 @@
 </main>
 
 <script>
-    const BASE_URL = "http://localhost:8080/bank";
+    // Relative on purpose: the page always talks to the server it was loaded from
+    // (open it at http://localhost:8080/bank.html, not from a different origin).
+    const BASE_URL = "/bank";
+
+    function readStoredAdminKey() {
+      try { return localStorage.getItem("bankAdminKey") || ""; } catch (e) { return ""; }
+    }
+
+    function updateAdminKeyStatus() {
+      const el = document.getElementById("adminKeyStatus");
+      if (readStoredAdminKey()) {
+        el.textContent = "Saved in this browser";
+        el.className = "admin-key-status set";
+      } else {
+        el.textContent = "Not set - admin actions will fail";
+        el.className = "admin-key-status unset";
+      }
+    }
+
+    function saveAdminKey() {
+      const value = document.getElementById("adminKey").value.trim();
+      try {
+        if (value) localStorage.setItem("bankAdminKey", value);
+        else localStorage.removeItem("bankAdminKey");
+      } catch (e) { /* storage blocked: the key will need re-entering each time */ }
+      document.getElementById("adminKey").value = "";
+      updateAdminKeyStatus();
+      showStatus(value ? "Admin key saved in this browser." : "Admin key cleared.", "success");
+    }
 
     async function apiCall(url, options = {}) {
       try {
         showStatus("Processing request...", "");
-        const response = await fetch(url, options);
+        const headers = { ...(options.headers || {}), "X-Admin-Key": readStoredAdminKey() };
+        const response = await fetch(url, { ...options, headers });
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -562,24 +644,38 @@
       const lastName = document.getElementById("lastName").value;
       const aadharNumber = document.getElementById("aadharNumber").value;
       const phno = document.getElementById("phno").value;
+      const pin = document.getElementById("pin").value;
 
-      if (!firstName || !lastName || !aadharNumber || !phno)
-        return showStatus("Please fill all required fields.", "error");
+      if (!firstName || !lastName || !aadharNumber || !phno || !pin)
+        return showStatus("Please fill all required fields, including a PIN.", "error");
 
       const user = {
         firstName: firstName,
         lastName: lastName,
         aadharNumber: Number(aadharNumber),
         phno: Number(phno),
-        balance: 0
+        pin: pin
       };
 
-      const data = await apiCall(`${BASE_URL}/save`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(user)
-      });
+      // Registration needs no admin key: fetch is called directly, not through apiCall's X-Admin-Key header.
+      let data;
+      try {
+        showStatus("Processing request...", "");
+        const response = await fetch(`${BASE_URL}/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(user)
+        });
+        if (!response.ok) throw new Error(await response.text() || `HTTP Error: ${response.status}`);
+        const text = await response.text();
+        data = text ? JSON.parse(text) : null;
+      } catch (error) {
+        showStatus("Request failed: " + error.message, "error");
+        openResultTab("Request Failed", { error: error.message });
+        return;
+      }
 
+      document.getElementById("pin").value = "";
       showStatus("User created successfully. Result opened in new tab.", "success");
       openResultTab("Create New User", data);
     }
@@ -639,6 +735,22 @@
       openResultTab("Update Mobile Number", data);
     }
 
+    async function setPin() {
+      const phno = document.getElementById("setPinPhno").value;
+      const newPin = document.getElementById("setPinValue").value;
+
+      if (!phno || !newPin) return showStatus("Please enter phone number and new PIN.", "error");
+
+      await apiCall(`${BASE_URL}/admin/set-pin`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phno: Number(phno), newPin: newPin })
+      });
+      document.getElementById("setPinValue").value = "";
+      showStatus("PIN updated successfully.", "success");
+      openResultTab("Set / Reset PIN", { message: "PIN updated successfully", phoneNumber: phno });
+    }
+
     async function deleteUser() {
       const phno = document.getElementById("deletePhno").value;
       if (!phno) return showStatus("Please enter phone number.", "error");
@@ -665,6 +777,8 @@
       showStatus("Transactions loaded successfully. Result opened in new tab.", "success");
       openResultTab("Bank Transactions", data);
     }
+
+    updateAdminKeyStatus();
 </script>
 
 </body>
