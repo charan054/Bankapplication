@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import jakarta.persistence.*;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
@@ -32,7 +33,8 @@ public class Bank {
     private long aadharNumber;
     @Column(unique = true)
     private long phno;
-    private double balance;
+    @Column(precision = 19, scale = 2)
+    private BigDecimal balance;
     // BCrypt hash of the customer's PIN. Null on accounts created before login existed, or reset by an admin;
     // such an account cannot log in until an admin sets a PIN via PUT /bank/admin/set-pin. Never sent in any response.
     @JsonIgnore

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import jakarta.persistence.*;
 import lombok.Data;
 
+import java.math.BigDecimal;
+
 @Entity
 @Table(name="BankTransactions")
 @Data
@@ -25,7 +27,9 @@ public class BankTransaction {
     @Column(name = "user_id")
     private long userId;
     private long phno;
-    private double amount;
+    @Column(precision = 19, scale = 2)
+    private BigDecimal amount;
     private String action;
-    private double balance;
+    @Column(precision = 19, scale = 2)
+    private BigDecimal balance;
 }

@@ -11,6 +11,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,7 +41,7 @@ class BankRepositoryTest {
         b.setLastName("Kumar");
         b.setPhno(phno);
         b.setAadharNumber(aadhar);
-        b.setBalance(balance);
+        b.setBalance(java.math.BigDecimal.valueOf(balance));
         return b;
     }
 
@@ -50,9 +51,15 @@ class BankRepositoryTest {
         t.setUserId(userId);
         t.setPhno(phno);
         t.setAction(action);
-        t.setAmount(amount);
-        t.setBalance(balance);
+        t.setAmount(java.math.BigDecimal.valueOf(amount));
+        t.setBalance(java.math.BigDecimal.valueOf(balance));
         return t;
+    }
+
+    // BigDecimal.equals() is scale-sensitive ("500" != "500.00" even though they're numerically equal);
+    // compareTo() is not, so it is the right comparison for a value that was never explicitly scaled.
+    private void assertMoney(double expected, BigDecimal actual) {
+        assertEquals(0, BigDecimal.valueOf(expected).compareTo(actual), () -> expected + " != " + actual);
     }
 
     /** Push pending SQL to the DB and empty the cache so the next read really hits the database. */
@@ -72,7 +79,7 @@ class BankRepositoryTest {
 
         assertNotNull(found);
         assertEquals(1000000000L, found.getAcno());
-        assertEquals(500, found.getBalance());
+        assertMoney(500, found.getBalance());
     }
 
     @Test
@@ -115,7 +122,7 @@ class BankRepositoryTest {
         assertEquals("Charan", found.getFirstName());
         assertEquals("Kumar", found.getLastName());
         assertEquals(987654321098L, found.getAadharNumber());   // 12 digits: needs a long, not an int
-        assertEquals(1234.5, found.getBalance());
+        assertMoney(1234.5, found.getBalance());
     }
 
     // The service builds new account numbers from the LAST row of findAll(), so it depends on this order.
@@ -180,11 +187,11 @@ class BankRepositoryTest {
         Bank copyOfA = bankRepository.findByphno(9876543210L);
 
         // ... A commits a deposit first ...
-        copyOfA.setBalance(1500);
+        copyOfA.setBalance(java.math.BigDecimal.valueOf(1500));
         bankRepository.saveAndFlush(copyOfA);
 
         // ... so B, still holding the old balance, must NOT be allowed to overwrite it.
-        staleCopyOfB.setBalance(1200);
+        staleCopyOfB.setBalance(java.math.BigDecimal.valueOf(1200));
         assertThrows(ObjectOptimisticLockingFailureException.class, () -> bankRepository.saveAndFlush(staleCopyOfB));
     }
 
@@ -193,7 +200,7 @@ class BankRepositoryTest {
         Bank saved = bankRepository.saveAndFlush(newBank(1000000000L, 9876543210L, 111111111111L, 0));
         assertEquals(0, saved.getVersion());
 
-        saved.setBalance(100);
+        saved.setBalance(java.math.BigDecimal.valueOf(100));
         bankRepository.saveAndFlush(saved);
         flushAndClear();
 
@@ -236,7 +243,7 @@ class BankRepositoryTest {
         List<BankTransaction> aTxns = bankRepository.findByphno(9000000001L).getTransactions();
 
         assertEquals(1, aTxns.size());
-        assertEquals(100, aTxns.get(0).getAmount());
+        assertMoney(100, aTxns.get(0).getAmount());
     }
 
     @Test

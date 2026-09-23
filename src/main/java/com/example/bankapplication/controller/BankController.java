@@ -19,6 +19,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 /**
@@ -65,20 +67,20 @@ public class BankController {
     @PutMapping("/deposit")
     public String deposit(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
                           @RequestBody AmountRequest request) {
-        requirePositiveAmount(request.amount());
-        return bankService.depositByphno(phno, request.amount());
+        BigDecimal amount = requirePositiveAmount(request.amount());
+        return bankService.depositByphno(phno, amount);
     }
 
     @PutMapping("/withdraw")
     public String withdraw(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
                            @RequestBody AmountRequest request) {
-        requirePositiveAmount(request.amount());
+        BigDecimal amount = requirePositiveAmount(request.amount());
         Bank exis = bankService.findByphno(phno);
         if (exis == null) {
             throw new UserNotFoundException("User not found");
         }
-        requireSufficientFunds(exis, request.amount());
-        return bankService.withdrawByphno(phno, request.amount());
+        requireSufficientFunds(exis, amount);
+        return bankService.withdrawByphno(phno, amount);
     }
 
     @PutMapping("/update-phone")
@@ -122,8 +124,8 @@ public class BankController {
         return exis;
     }
     @PutMapping("/withdrawByphno")
-    public String withdrawByphno(@RequestParam long phno,@RequestParam double balance){
-        requirePositiveAmount(balance);
+    public String withdrawByphno(@RequestParam long phno,@RequestParam BigDecimal balance){
+        balance = requirePositiveAmount(balance);
         Bank exis= bankService.findByphno(phno);
         if(exis==null) {
             throw new UserNotFoundException("User not found");
@@ -132,8 +134,8 @@ public class BankController {
         return bankService.withdrawByphno(phno, balance);
     }
     @PutMapping("/withdrawByacno")
-    public String withdrawByacno(@RequestParam long acno,@RequestParam double balance){
-        requirePositiveAmount(balance);
+    public String withdrawByacno(@RequestParam long acno,@RequestParam BigDecimal balance){
+        balance = requirePositiveAmount(balance);
         Bank exis= bankService.findByacno(acno);
         if(exis==null) {
             throw new UserNotFoundException("User not found");
@@ -142,13 +144,13 @@ public class BankController {
         return bankService.withdrawByacno(acno, balance);
     }
     @PutMapping("/depositByphno")
-    public String depositByphno(@RequestParam long phno,@RequestParam double balance){
-        requirePositiveAmount(balance);
+    public String depositByphno(@RequestParam long phno,@RequestParam BigDecimal balance){
+        balance = requirePositiveAmount(balance);
         return bankService.depositByphno(phno,balance);
     }
     @PutMapping("/depositByacno")
-    public String depositByacno(@RequestParam long acno,@RequestParam double balance){
-        requirePositiveAmount(balance);
+    public String depositByacno(@RequestParam long acno,@RequestParam BigDecimal balance){
+        balance = requirePositiveAmount(balance);
         return bankService.depositByacno(acno,balance);
     }
     @PutMapping("/updatephno")
@@ -176,14 +178,17 @@ public class BankController {
 
     // ---------- shared validation ----------
 
-    private void requirePositiveAmount(double amount) {
-        if (amount <= 0) {
+    // Normalizes to 2 decimal places (rounding, never rejecting extra precision) so every amount stored or
+    // echoed back is consistently formatted, regardless of how many decimals the caller sent.
+    private BigDecimal requirePositiveAmount(BigDecimal amount) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new DepositException("Amount too low");
         }
+        return amount.setScale(2, RoundingMode.HALF_UP);
     }
 
-    private void requireSufficientFunds(Bank account, double amount) {
-        if (amount > account.getBalance()) {
+    private void requireSufficientFunds(Bank account, BigDecimal amount) {
+        if (amount.compareTo(account.getBalance()) > 0) {
             throw new WithdrawException("Insufficient Funds");
         }
     }
