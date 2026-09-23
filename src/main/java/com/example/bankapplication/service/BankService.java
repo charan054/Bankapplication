@@ -219,7 +219,7 @@ public class BankService {
             checkSufficientFunds(exis,amount);
             exis.setBalance(exis.getBalance().subtract(amount));
             BankTransaction b=new BankTransaction();
-            b.setPhno(userRepository.findByacno(acno).getPhno());
+            b.setPhno(exis.getPhno());
             b.setAmount(amount);
             b.setAction("Debit");
             b.setBalance(exis.getBalance());
@@ -267,7 +267,7 @@ public class BankService {
         {
             exis.setBalance(exis.getBalance().add(amount));
             BankTransaction b=new BankTransaction();
-            b.setPhno(userRepository.findByacno(acno).getPhno());
+            b.setPhno(exis.getPhno());
             b.setAmount(amount);
             b.setAction("Credit");
             b.setBalance(exis.getBalance());
@@ -385,7 +385,7 @@ public class BankService {
     {
         Bank exis=userRepository.findByphno(phno);
         if(exis!=null)
-        userRepository.delete(userRepository.findByphno(phno));
+        userRepository.delete(exis);
         else
             throw new UserNotFoundException("User not found");
     }

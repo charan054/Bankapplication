@@ -49,6 +49,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -407,6 +408,8 @@ class BankServiceTest {
         assertEquals(100008L, captor.getValue().getTransactionId());   // last id + 1
         assertEquals("Credit", captor.getValue().getAction());
         assertEquals(NOW, captor.getValue().getCreatedAt());
+        assertEquals(9876543210L, captor.getValue().getPhno());
+        verify(userRepository, times(1)).findByacno(1000000000L);   // not re-fetched just to read its phno back
     }
 
     @Test
@@ -453,6 +456,8 @@ class BankServiceTest {
         ArgumentCaptor<BankTransaction> captor = ArgumentCaptor.forClass(BankTransaction.class);
         verify(bankTransactionRepository).save(captor.capture());
         assertEquals(NOW, captor.getValue().getCreatedAt());
+        assertEquals(9876543210L, captor.getValue().getPhno());
+        verify(userRepository, times(1)).findByacno(1000000000L);   // not re-fetched just to read its phno back
     }
 
     // The balance check must live INSIDE the service transaction; a check made earlier can be stale by the time we subtract.
@@ -650,6 +655,17 @@ class BankServiceTest {
     }
 
     // ---------- delete ----------
+
+    @Test
+    void deleteByPhno_deletesTheAccountThatWasLookedUp() {
+        Bank user = bank(1000000000L, 9876543210L, 123456789012L, 0);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+
+        bankService.deleteByPhno(9876543210L);
+
+        verify(userRepository).delete(user);
+        verify(userRepository, times(1)).findByphno(9876543210L);   // not re-fetched just to pass it to delete()
+    }
 
     @Test
     void deleteByPhno_unknownUser_throwsUserNotFound() {
