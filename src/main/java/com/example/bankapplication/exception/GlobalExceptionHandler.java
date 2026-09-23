@@ -56,6 +56,10 @@ public class GlobalExceptionHandler {
     public ResponseEntity<String> handleMobileNumberException(MobileNumberException ex) {
         return ResponseEntity.badRequest().body(ex.getMessage());
     }
+    @ExceptionHandler(InvalidRequestException.class)
+    public ResponseEntity<String> handleInvalidRequest(InvalidRequestException ex) {
+        return ResponseEntity.badRequest().body(ex.getMessage());
+    }
     // Two requests touched the same data at the same time: either the optimistic lock (@Version) refused a stale
     // update, or a unique constraint (phno, aadhar, acno, transactionId) stopped a duplicate that both requests
     // passed the service's checks for. Retrying re-runs those checks on the committed data and gives the real answer.

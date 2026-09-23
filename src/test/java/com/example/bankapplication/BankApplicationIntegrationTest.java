@@ -541,6 +541,101 @@ class BankApplicationIntegrationTest {
         assertEquals(1 + succeeded, bankTransactionRepository.count());   // the deposit + each successful withdrawal
     }
 
+    // ---------- atomic transfer ----------
+
+    @Test
+    void transfer_movesMoneyAndRecordsBothLegs_inOneCall() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        createUser(PHNO_B, AADHAR_B);
+        depositByPhno(PHNO_A, "1000");
+
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"payerPhno\":" + PHNO_A + ",\"receiverPhno\":" + PHNO_B
+                                + ",\"amount\":250,\"idempotencyKey\":\"test-key-1\"}"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("Transfer Successful Amount Inr : 250.00"));
+
+        balanceShouldBe(PHNO_A, 750.0);
+        balanceShouldBe(PHNO_B, 250.0);
+        mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_A))
+                .andExpect(jsonPath("$[1].action").value("Debit"))
+                .andExpect(jsonPath("$[1].amount").value(250.0));
+        mockMvc.perform(asAdmin(get("/bank/transactions")).param("phno", "" + PHNO_B))
+                .andExpect(jsonPath("$[0].action").value("Credit"))
+                .andExpect(jsonPath("$[0].amount").value(250.0));
+    }
+
+    @Test
+    void transfer_sameIdempotencyKeySentAgain_doesNotMoveMoneyASecondTime() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        createUser(PHNO_B, AADHAR_B);
+        depositByPhno(PHNO_A, "1000");
+        String body = "{\"payerPhno\":" + PHNO_A + ",\"receiverPhno\":" + PHNO_B
+                + ",\"amount\":250,\"idempotencyKey\":\"test-key-2\"}";
+
+        // The first call's response never has to "arrive" for this to matter - simulate exactly that by just
+        // sending the identical request a second time, the way a caller retrying after a timeout would.
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk());
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(content().string("Transfer Successful Amount Inr : 250.00"));
+
+        balanceShouldBe(PHNO_A, 750.0);   // 1000 - 250, not - 500
+        balanceShouldBe(PHNO_B, 250.0);
+        assertEquals(3, bankTransactionRepository.count());   // the deposit + exactly one debit + one credit
+    }
+
+    @Test
+    void transfer_toUnknownReceiver_movesNoMoney() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        depositByPhno(PHNO_A, "1000");
+
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"payerPhno\":" + PHNO_A + ",\"receiverPhno\":9999999999,\"amount\":250,\"idempotencyKey\":\"test-key-3\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Receiver not found"));
+
+        balanceShouldBe(PHNO_A, 1000.0);
+        assertEquals(1, bankTransactionRepository.count());   // only the deposit
+    }
+
+    @Test
+    void transfer_insufficientFunds_movesNoMoney() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        createUser(PHNO_B, AADHAR_B);
+        depositByPhno(PHNO_A, "100");
+
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"payerPhno\":" + PHNO_A + ",\"receiverPhno\":" + PHNO_B + ",\"amount\":500,\"idempotencyKey\":\"test-key-4\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Insufficient Funds"));
+
+        balanceShouldBe(PHNO_A, 100.0);
+        balanceShouldBe(PHNO_B, 0.0);
+    }
+
+    // The core guarantee this whole feature exists for: many simultaneous requests carrying the SAME idempotency
+    // key must result in the transfer happening exactly once, never zero and never more than once.
+    @Test
+    void transfer_manySimultaneousRequestsWithTheSameKey_moveTheMoneyExactlyOnce() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        createUser(PHNO_B, AADHAR_B);
+        depositByPhno(PHNO_A, "1000");
+        String body = "{\"payerPhno\":" + PHNO_A + ",\"receiverPhno\":" + PHNO_B
+                + ",\"amount\":250,\"idempotencyKey\":\"race-key\"}";
+
+        List<Integer> statuses = fireSimultaneously(10, () -> mockMvc
+                .perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andReturn().getResponse().getStatus());
+
+        assertTrue(statuses.stream().allMatch(s -> s == 200 || s == 409), "unexpected statuses: " + statuses);
+        assertTrue(statuses.stream().anyMatch(s -> s == 200), "at least one request must succeed: " + statuses);
+        balanceShouldBe(PHNO_A, 750.0);    // exactly one transfer's worth left, however many requests "succeeded"
+        balanceShouldBe(PHNO_B, 250.0);
+        assertEquals(3, bankTransactionRepository.count());   // the deposit + exactly one debit + one credit
+    }
+
     // ---------- lookups ----------
 
     @Test
