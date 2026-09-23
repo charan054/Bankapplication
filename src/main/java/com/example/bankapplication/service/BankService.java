@@ -1,9 +1,14 @@
 package com.example.bankapplication.service;
 
 import com.example.bankapplication.dto.BankDto;
+import com.example.bankapplication.dto.LoginResponse;
+import com.example.bankapplication.dto.RegisterRequest;
 import com.example.bankapplication.entity.Bank;
 import com.example.bankapplication.entity.BankTransaction;
+import com.example.bankapplication.exception.AccountLockedException;
+import com.example.bankapplication.exception.InvalidCredentialsException;
 import com.example.bankapplication.exception.MobileNumberException;
+import com.example.bankapplication.exception.PinNotSetException;
 import com.example.bankapplication.exception.UserExistException;
 import com.example.bankapplication.exception.UserNotFoundException;
 import com.example.bankapplication.exception.WithdrawException;
@@ -11,21 +16,36 @@ import com.example.bankapplication.kafka.BankKafkaProducer;
 import com.example.bankapplication.repository.BankRepository;
 import com.example.bankapplication.repository.BankTransactionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 @Service
 public class BankService {
+    static final int MAX_FAILED_LOGIN_ATTEMPTS = 5;
+    static final Duration LOCKOUT_DURATION = Duration.ofMinutes(15);
+
     @Autowired
     private BankRepository userRepository;
     @Autowired
     BankTransactionRepository bankTransactionRepository;
     @Autowired
     BankKafkaProducer bankKafkaProducer;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+    @Autowired
+    private SessionService sessionService;
+    @Autowired
+    private Clock clock;
+
     public Bank findByacno(long acno) {
         return userRepository.findByacno(acno);
     }
@@ -43,9 +63,89 @@ public class BankService {
         }
         return dto;
     }
-    @Transactional
-    public Bank save(Bank user)
+
+    // ---------- authentication ----------
+
+    /**
+     * Deliberately generic on a wrong phone number or PIN ("Invalid phone number or PIN"), so a login attempt
+     * cannot be used to discover whether a phone number has an account at all.
+     */
+    // noRollbackFor: a wrong PIN increments failedLoginAttempts and then throws. Without this, Spring's default
+    // rollback-on-unchecked-exception behaviour would undo that save too, silently defeating the lockout.
+    @Transactional(noRollbackFor = InvalidCredentialsException.class)
+    public LoginResponse login(long phno, String rawPin)
     {
+        Bank user = userRepository.findByphno(phno);
+        if (user == null)
+        {
+            throw new InvalidCredentialsException("Invalid phone number or PIN");
+        }
+        if (user.getPinHash() == null)
+        {
+            throw new PinNotSetException("This account has no PIN yet. Ask an administrator to set one.");
+        }
+        Instant now = clock.instant();
+        if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(now))
+        {
+            throw new AccountLockedException("Too many failed attempts. Try again after "
+                    + DateTimeFormatter.ISO_INSTANT.format(user.getLockedUntil()) + ".");
+        }
+        if (!passwordEncoder.matches(rawPin, user.getPinHash()))
+        {
+            registerFailedAttempt(user, now);
+            throw new InvalidCredentialsException("Invalid phone number or PIN");
+        }
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
+        userRepository.save(user);
+        SessionService.IssuedSession session = sessionService.start(phno);
+        String name = (user.getLastName()+" "+user.getFirstName()).toUpperCase();
+        return new LoginResponse(session.token(), session.expiresAt(), phno, name);
+    }
+
+    public void logout(String token)
+    {
+        sessionService.end(token);
+    }
+
+    private void registerFailedAttempt(Bank user, Instant now)
+    {
+        int attempts = user.getFailedLoginAttempts() + 1;
+        user.setFailedLoginAttempts(attempts);
+        if (attempts >= MAX_FAILED_LOGIN_ATTEMPTS)
+        {
+            user.setLockedUntil(now.plus(LOCKOUT_DURATION));
+        }
+        userRepository.save(user);
+    }
+
+    /** Admin-only: bootstraps an account created before login existed, or resets a forgotten PIN. */
+    @Transactional
+    public void setPin(long phno, String newPin)
+    {
+        Bank user = userRepository.findByphno(phno);
+        if (user == null)
+        {
+            throw new UserNotFoundException("User not found");
+        }
+        user.setPinHash(passwordEncoder.encode(newPin));
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
+        userRepository.save(user);
+    }
+
+    // ---------- registration ----------
+
+    @Transactional
+    public Bank register(RegisterRequest request)
+    {
+        Bank user = new Bank();
+        user.setFirstName(request.firstName());
+        user.setLastName(request.lastName());
+        user.setAadharNumber(request.aadharNumber());
+        user.setPhno(request.phno());
+        user.setBalance(0);
+
         long phno=user.getPhno();
         String x=""+phno;
         if(x.length()!=10||!x.matches("^[6-9].*"))
@@ -80,6 +180,8 @@ public class BankService {
             }
         }
 
+        user.setPinHash(passwordEncoder.encode(request.pin()));
+
         if(l.size()==0) {
             user.setAcno(1000000000);
             return userRepository.save(user);
@@ -88,6 +190,7 @@ public class BankService {
         user.setAcno(acno+1);
         return userRepository.save(user);
     }
+
     @Transactional
     public String withdrawByphno(long phno, double amount)
     {
