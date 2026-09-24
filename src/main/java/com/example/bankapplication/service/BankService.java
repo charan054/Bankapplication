@@ -209,7 +209,7 @@ public class BankService {
         {
             throw new UserNotFoundException("User not found");
         }
-        notifyAfterCommit("Amount Withdraw successfully. Phone: "+phno+" Amount: "+ amount +", Current Balance: "+ exis.getBalance());
+        notifyAfterCommit("Amount Withdraw successfully. Phone: "+mask(phno)+" Amount: "+ amount +", Current Balance: "+ exis.getBalance());
         userRepository.save(exis);
         return "Withdraw Successful Amount Inr : "+amount;
     }
@@ -253,7 +253,7 @@ public class BankService {
             b.setUserId(exis.getUserId());
             b.setTransactionId(nextTransactionId());
             b.setCreatedAt(clock.instant());
-            notifyAfterCommit("Amount deposited successfully. Phone: "+phno+" Amount: "+ amount +", Current Balance: "+ b.getBalance());
+            notifyAfterCommit("Amount deposited successfully. Phone: "+mask(phno)+" Amount: "+ amount +", Current Balance: "+ b.getBalance());
             bankTransactionRepository.save(b);        }
         else
         {
@@ -364,7 +364,7 @@ public class BankService {
         record.setCreatedAt(clock.instant());
         transferRepository.save(record);
 
-        notifyAfterCommit("Transfer successful. From: " + payerPhno + " To: " + receiverPhno
+        notifyAfterCommit("Transfer successful. From: " + mask(payerPhno) + " To: " + mask(receiverPhno)
                 + " Amount: " + amount + ", Payer balance: " + payer.getBalance());
 
         return "Transfer Successful Amount Inr : " + amount;
@@ -387,7 +387,7 @@ public class BankService {
         {
             throw new UserNotFoundException("User not found");
         }
-        notifyAfterCommit("Mobile number updated old phno: "+phno+" New phno: "+newphno);
+        notifyAfterCommit("Mobile number updated old phno: "+mask(phno)+" New phno: "+mask(newphno));
         return userRepository.save(exis);
     }
     @Transactional
@@ -461,6 +461,12 @@ public class BankService {
         catch(RuntimeException e) {
             log.error("Kafka notification failed: {}", e.getMessage());
         }
+    }
+    // keep phone numbers out of the Kafka topic and its logs
+    private static String mask(long phno)
+    {
+        String s = String.valueOf(phno);
+        return "XXXXXX" + s.substring(Math.max(0, s.length() - 4));
     }
     public PageResponse<BankTransaction> displayTransactionByPhno(long phno, int page, int size, Instant from, Instant to)
     {
