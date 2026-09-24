@@ -30,6 +30,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
@@ -50,6 +51,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -251,7 +253,7 @@ class BankServiceTest {
         bankService.login(9876543210L, "1234");
 
         assertEquals(0, user.getFailedLoginAttempts());
-        verify(userRepository).save(user);
+        verify(userRepository).saveAndFlush(user);
     }
 
     @Test
@@ -324,6 +326,56 @@ class BankServiceTest {
         LoginResponse response = bankService.login(9876543210L, "1234");
 
         assertEquals("tok", response.token());
+    }
+
+    // ---------- login: two attempts racing on the same account's @Version ----------
+
+    @Test
+    void login_wrongPin_concurrentUpdateLosesTheRace_retriesAndStillThrowsInvalidCredentials() {
+        // Another request against the SAME account (right or wrong PIN) committed first. Losing this race must
+        // not surface as a raw 409 for what the caller experiences as just a wrong PIN.
+        Bank user = bankWithPin(1000000000L, 9876543210L, 123456789012L, 500);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(passwordEncoder.matches("0000", STORED_HASH)).thenReturn(false);
+        doThrow(new ObjectOptimisticLockingFailureException(Bank.class, 1000000000L))
+                .doReturn(user)
+                .when(userRepository).saveAndFlush(user);
+
+        InvalidCredentialsException ex = assertThrows(InvalidCredentialsException.class,
+                () -> bankService.login(9876543210L, "0000"));
+
+        assertEquals("Invalid phone number or PIN", ex.getMessage());
+        verify(userRepository, times(2)).saveAndFlush(user);
+    }
+
+    @Test
+    void login_wrongPin_concurrentUpdateKeepsLosing_givesUpAfterMaxRetries() {
+        Bank user = bankWithPin(1000000000L, 9876543210L, 123456789012L, 500);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(passwordEncoder.matches("0000", STORED_HASH)).thenReturn(false);
+        doThrow(new ObjectOptimisticLockingFailureException(Bank.class, 1000000000L))
+                .when(userRepository).saveAndFlush(user);
+
+        assertThrows(ObjectOptimisticLockingFailureException.class, () -> bankService.login(9876543210L, "0000"));
+
+        verify(userRepository, times(3)).saveAndFlush(user);
+    }
+
+    @Test
+    void login_correctPin_concurrentUpdateLosesTheRaceOnce_retriesAndStillSucceeds() {
+        Bank user = bankWithPin(1000000000L, 9876543210L, 123456789012L, 500);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(passwordEncoder.matches("1234", STORED_HASH)).thenReturn(true);
+        when(sessionService.start(9876543210L)).thenReturn(new SessionService.IssuedSession("tok", NOW));
+        doThrow(new ObjectOptimisticLockingFailureException(Bank.class, 1000000000L))
+                .doReturn(user)
+                .when(userRepository).saveAndFlush(user);
+
+        LoginResponse response = bankService.login(9876543210L, "1234");
+
+        assertEquals("tok", response.token());
+        verify(userRepository, times(2)).saveAndFlush(user);
+        verify(userRepository, times(2)).findByphno(9876543210L);
     }
 
     @Test
