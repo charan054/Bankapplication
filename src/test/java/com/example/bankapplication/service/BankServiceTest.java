@@ -42,7 +42,9 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -381,6 +383,19 @@ class BankServiceTest {
         verify(userRepository).save(user);
     }
 
+    @Test
+    void depositByphno_notification_masksThePhoneNumber() {
+        Bank user = bank(1000000000L, 9876543210L, 123456789012L, 1000);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+
+        bankService.depositByphno(9876543210L, money(500));
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(bankKafkaProducer).sendMessage(message.capture());
+        assertTrue(message.getValue().contains("XXXXXX3210"));
+        assertFalse(message.getValue().contains("9876543210"));
+    }
+
     // A broken notification channel must never turn a completed payment into an error.
     @Test
     void depositByphno_kafkaFailure_doesNotFailTheDeposit() {
@@ -443,6 +458,19 @@ class BankServiceTest {
 
         verify(bankKafkaProducer).sendMessage(contains("Amount Withdraw successfully"));
         verify(userRepository).save(user);
+    }
+
+    @Test
+    void withdrawByphno_notification_masksThePhoneNumber() {
+        Bank user = bank(1000000000L, 9876543210L, 123456789012L, 1000);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+
+        bankService.withdrawByphno(9876543210L, money(400));
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(bankKafkaProducer).sendMessage(message.capture());
+        assertTrue(message.getValue().contains("XXXXXX3210"));
+        assertFalse(message.getValue().contains("9876543210"));
     }
 
     @Test
@@ -646,6 +674,42 @@ class BankServiceTest {
 
         assertEquals(9123456789L, updated.getPhno());
         verify(bankKafkaProducer).sendMessage(contains("Mobile number updated"));
+    }
+
+    // These messages go to a Kafka topic (and, per BankKafkaConsumer/Producer, to the logs); the full 10-digit
+    // number must never appear in either, only the last 4 digits, the same as PhonepayService already does.
+    @Test
+    void updatePhno_notification_masksBothPhoneNumbers() {
+        Bank user = bank(1000000000L, 9876543210L, 123456789012L, 0);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(userRepository.save(user)).thenReturn(user);
+
+        bankService.updatePhno(9876543210L, 9123456789L);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(bankKafkaProducer).sendMessage(message.capture());
+        assertTrue(message.getValue().contains("XXXXXX3210"));
+        assertTrue(message.getValue().contains("XXXXXX6789"));
+        assertFalse(message.getValue().contains("9876543210"), "the old number must not appear in full");
+        assertFalse(message.getValue().contains("9123456789"), "the new number must not appear in full");
+    }
+
+    @Test
+    void transfer_notification_masksBothPhoneNumbers() {
+        Bank payer = bank(1000000000L, 9876543210L, 111111111111L, 1000);
+        Bank receiver = bank(1000000001L, 9123456789L, 222222222222L, 0);
+        when(userRepository.findByphno(9876543210L)).thenReturn(payer);
+        when(userRepository.findByphno(9123456789L)).thenReturn(receiver);
+        when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
+
+        bankService.transfer(9876543210L, 9123456789L, money(250), "key-1");
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(bankKafkaProducer).sendMessage(message.capture());
+        assertTrue(message.getValue().contains("XXXXXX3210"));
+        assertTrue(message.getValue().contains("XXXXXX6789"));
+        assertFalse(message.getValue().contains("9876543210"));
+        assertFalse(message.getValue().contains("9123456789"));
     }
 
     @Test
