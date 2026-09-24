@@ -46,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -348,6 +349,16 @@ class BankServiceTest {
         assertEquals(0, user.getFailedLoginAttempts());
         assertEquals(null, user.getLockedUntil());
         verify(userRepository).save(user);
+    }
+
+    @Test
+    void setPin_invalidatesAnySessionOpenedUnderTheOldPin() {
+        Bank user = bankWithPin(1000000000L, 9876543210L, 123456789012L, 500);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+
+        bankService.setPin(9876543210L, "5678");
+
+        verify(sessionService).invalidateAllFor(9876543210L);
     }
 
     @Test
@@ -713,6 +724,18 @@ class BankServiceTest {
     }
 
     @Test
+    void updatePhno_invalidatesAnySessionOpenedUnderTheOldNumber() {
+        Bank user = bank(1000000000L, 9876543210L, 123456789012L, 0);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(userRepository.save(user)).thenReturn(user);
+
+        bankService.updatePhno(9876543210L, 9123456789L);
+
+        verify(sessionService).invalidateAllFor(9876543210L);
+        verify(sessionService, never()).invalidateAllFor(9123456789L);
+    }
+
+    @Test
     void updatePhno_newNumberAlreadyTaken_throwsUserExist() {
         when(userRepository.existsByPhno(9123456789L)).thenReturn(true);
 
@@ -750,12 +773,23 @@ class BankServiceTest {
     }
 
     @Test
+    void deleteByPhno_invalidatesAnySessionStillOpenForThatNumber() {
+        Bank user = bank(1000000000L, 9876543210L, 123456789012L, 0);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+
+        bankService.deleteByPhno(9876543210L);
+
+        verify(sessionService).invalidateAllFor(9876543210L);
+    }
+
+    @Test
     void deleteByPhno_unknownUser_throwsUserNotFound() {
         when(userRepository.findByphno(9999999999L)).thenReturn(null);
 
         assertThrows(UserNotFoundException.class, () -> bankService.deleteByPhno(9999999999L));
 
         verify(userRepository, never()).delete(any());
+        verify(sessionService, never()).invalidateAllFor(anyLong());
     }
 
     // ---------- display ----------
@@ -829,6 +863,74 @@ class BankServiceTest {
 
         assertThrows(InvalidRequestException.class,
                 () -> bankService.displayTransactionByPhno(9876543210L, 0, BankService.MAX_PAGE_SIZE + 1, null, null));
+    }
+
+    // ---------- self-service: my-transactions (scoped by account, not by the phone number value) ----------
+
+    @Test
+    void displayMyTransactions_looksUpByTheAccountsUserId_notThePhoneNumber() {
+        Bank user = bank(1000000000L, 9876543210L, 123456789012L, 0);   // userId = 1, see bank()
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(bankTransactionRepository.findByUserId(eq(1L), isNull(), isNull(), any()))
+                .thenReturn(new PageImpl<>(List.of(txnWithId(100000))));
+
+        assertEquals(1, bankService.displayMyTransactions(9876543210L, 0, 20, null, null).content().size());
+    }
+
+    @Test
+    void displayMyTransactions_doesNotFallBackToThePhnoBasedQuery() {
+        Bank user = bank(1000000000L, 9876543210L, 123456789012L, 0);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(bankTransactionRepository.findByUserId(eq(1L), isNull(), isNull(), any()))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        bankService.displayMyTransactions(9876543210L, 0, 20, null, null);
+
+        verify(bankTransactionRepository, never()).findByPhno(anyLong(), any(), any(), any());
+    }
+
+    @Test
+    void displayMyTransactions_passesFromAndToThrough() {
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to = Instant.parse("2026-01-31T00:00:00Z");
+        when(userRepository.findByphno(9876543210L)).thenReturn(bank(1000000000L, 9876543210L, 123456789012L, 0));
+        when(bankTransactionRepository.findByUserId(eq(1L), eq(from), eq(to), any()))
+                .thenReturn(new PageImpl<>(List.of(txnWithId(100000))));
+
+        assertEquals(1, bankService.displayMyTransactions(9876543210L, 0, 20, from, to).content().size());
+    }
+
+    @Test
+    void displayMyTransactions_fromAfterTo_throwsInvalidRequest() {
+        Instant from = Instant.parse("2026-01-31T00:00:00Z");
+        Instant to = Instant.parse("2026-01-01T00:00:00Z");
+
+        assertThrows(InvalidRequestException.class, () -> bankService.displayMyTransactions(9876543210L, 0, 20, from, to));
+        verifyNoInteractions(userRepository, bankTransactionRepository);
+    }
+
+    @Test
+    void displayMyTransactions_unknownUser_throwsUserNotFound() {
+        when(userRepository.findByphno(9999999999L)).thenReturn(null);
+
+        assertThrows(UserNotFoundException.class, () -> bankService.displayMyTransactions(9999999999L, 0, 20, null, null));
+    }
+
+    // A phone number can be reassigned after an account is deleted (see deleteByPhno_invalidatesAnySessionStillOpenForThatNumber);
+    // the point of scoping this query by userId is that the new owner's own listing never surfaces rows written
+    // under the old owner's userId, even though they currently share the same phno value.
+    @Test
+    void displayMyTransactions_isScopedToTheCurrentOwnersUserId_evenIfAnOlderAccountUsedTheSamePhno() {
+        Bank newOwner = bank(1000000005L, 9876543210L, 999999999999L, 0);
+        newOwner.setUserId(42);   // a different account than whoever had this number before
+        when(userRepository.findByphno(9876543210L)).thenReturn(newOwner);
+        when(bankTransactionRepository.findByUserId(eq(42L), isNull(), isNull(), any()))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        assertEquals(0, bankService.displayMyTransactions(9876543210L, 0, 20, null, null).content().size());
+
+        verify(bankTransactionRepository).findByUserId(eq(42L), isNull(), isNull(), any());
+        verify(bankTransactionRepository, never()).findByPhno(anyLong(), any(), any(), any());
     }
 
     @Test

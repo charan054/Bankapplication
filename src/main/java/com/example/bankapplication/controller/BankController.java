@@ -98,7 +98,7 @@ public class BankController {
                           @RequestParam(defaultValue = "" + BankService.DEFAULT_PAGE_SIZE) int size,
                           @RequestParam(required = false) Instant from,
                           @RequestParam(required = false) Instant to) {
-        return bankService.displayTransactionByPhno(phno, page, size, from, to);
+        return bankService.displayMyTransactions(phno, page, size, from, to);
     }
 
     @DeleteMapping("/me")

@@ -156,6 +156,58 @@ class BankTransactionRepositoryTest {
                 .getTotalElements());
     }
 
+    // ---------- findByUserId: scoped to the account, not the phone number value ----------
+
+    @Test
+    void findByUserId_returnsOnlyThatAccountsRows() {
+        repository.save(txn(100000, userIdA, 9876543210L, "Credit", 500, 500));
+        repository.save(txn(100001, userIdB, 9123456789L, "Credit", 900, 900));
+
+        Page<BankTransaction> page = repository.findByUserId(userIdA, null, null, PageRequest.of(0, 20, Sort.by("id").ascending()));
+
+        assertEquals(1, page.getTotalElements());
+        assertEquals(100000, page.getContent().get(0).getTransactionId());
+    }
+
+    // The scenario that matters: a phone number is freed up and later claimed by a different account. Rows
+    // written under the old account's userId must never surface in the new account's own listing, even though
+    // both rows happen to carry the same phno value.
+    @Test
+    void findByUserId_doesNotMixRowsThatShareAPhoneNumberAcrossDifferentAccounts() {
+        repository.save(txn(100000, userIdA, 9876543210L, "Credit", 500, 500));   // the old owner's history
+        repository.save(txn(100001, userIdB, 9876543210L, "Credit", 900, 900));   // a different account, same phno value
+
+        Page<BankTransaction> page = repository.findByUserId(userIdB, null, null, PageRequest.of(0, 20, Sort.by("id").ascending()));
+
+        assertEquals(1, page.getTotalElements());
+        assertEquals(100001, page.getContent().get(0).getTransactionId());
+    }
+
+    @Test
+    void findByUserId_filtersByCreatedAt_whenFromAndToAreGiven() {
+        BankTransaction early = txn(100000, userIdA, 9876543210L, "Credit", 10, 10);
+        early.setCreatedAt(Instant.parse("2026-01-01T00:00:00Z"));
+        BankTransaction inRange = txn(100001, userIdA, 9876543210L, "Credit", 10, 20);
+        inRange.setCreatedAt(Instant.parse("2026-01-15T00:00:00Z"));
+        repository.save(early);
+        repository.save(inRange);
+
+        Page<BankTransaction> filtered = repository.findByUserId(userIdA,
+                Instant.parse("2026-01-10T00:00:00Z"), Instant.parse("2026-01-20T00:00:00Z"),
+                PageRequest.of(0, 20, Sort.by("id").ascending()));
+
+        assertEquals(1, filtered.getTotalElements());
+        assertEquals(100001, filtered.getContent().get(0).getTransactionId());
+    }
+
+    @Test
+    void findByUserId_unknownUserId_isEmpty() {
+        Page<BankTransaction> page = repository.findByUserId(999999, null, null, PageRequest.of(0, 20, Sort.by("id").ascending()));
+
+        assertTrue(page.getContent().isEmpty());
+        assertEquals(0, page.getTotalElements());
+    }
+
     // ---------- backfilling rows written before createdAt existed ----------
 
     @Test
