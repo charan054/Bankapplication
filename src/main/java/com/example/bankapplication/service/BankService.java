@@ -299,13 +299,12 @@ public class BankService {
     @Transactional
     public String transfer(long payerPhno, long receiverPhno, BigDecimal amount, String idempotencyKey)
     {
-        Transfer existing = transferRepository.findByIdempotencyKey(idempotencyKey).orElse(null);
+        Transfer existing = transferRepository.findByPayerPhnoAndIdempotencyKey(payerPhno, idempotencyKey).orElse(null);
         if (existing != null)
         {
             // A retry must send back the SAME request, not just the same key - otherwise a reused key (a client
             // bug, or a copy-pasted key) would silently claim success for money that was never moved as asked.
-            if (existing.getPayerPhno() != payerPhno || existing.getReceiverPhno() != receiverPhno
-                    || existing.getAmount().compareTo(amount) != 0)
+            if (existing.getReceiverPhno() != receiverPhno || existing.getAmount().compareTo(amount) != 0)
             {
                 throw new InvalidRequestException("This idempotency key was already used for a different transfer request.");
             }

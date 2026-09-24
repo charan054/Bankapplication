@@ -770,6 +770,28 @@ class BankApplicationIntegrationTest {
         balanceShouldBe(PHNO_B, 250.0);
     }
 
+    // The key is scoped per payer: two different customers reusing the identical key string (their own
+    // key-generation schemes just happened to collide) are two unrelated transfers, not a conflict.
+    @Test
+    void transfer_sameIdempotencyKey_fromTwoDifferentPayers_bothSucceed_independently() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        createUser(PHNO_B, AADHAR_B);
+        depositByPhno(PHNO_A, "1000");
+        depositByPhno(PHNO_B, "1000");
+
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"payerPhno\":" + PHNO_A + ",\"receiverPhno\":" + PHNO_B
+                                + ",\"amount\":250,\"idempotencyKey\":\"shared-key\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"payerPhno\":" + PHNO_B + ",\"receiverPhno\":" + PHNO_A
+                                + ",\"amount\":400,\"idempotencyKey\":\"shared-key\"}"))
+                .andExpect(status().isOk());
+
+        balanceShouldBe(PHNO_A, 1150.0);   // 1000 - 250 + 400
+        balanceShouldBe(PHNO_B, 850.0);    // 1000 + 250 - 400
+    }
+
     @Test
     void transfer_toUnknownReceiver_movesNoMoney() throws Exception {
         createUser(PHNO_A, AADHAR_A);

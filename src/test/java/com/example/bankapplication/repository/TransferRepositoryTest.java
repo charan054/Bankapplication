@@ -36,10 +36,10 @@ class TransferRepositoryTest {
     }
 
     @Test
-    void findByIdempotencyKey_findsIt() {
+    void findByPayerPhnoAndIdempotencyKey_findsIt() {
         repository.save(transfer("key-1", 9876543210L, 9123456789L, 250));
 
-        Transfer found = repository.findByIdempotencyKey("key-1").orElseThrow();
+        Transfer found = repository.findByPayerPhnoAndIdempotencyKey(9876543210L, "key-1").orElseThrow();
 
         assertEquals(9876543210L, found.getPayerPhno());
         assertEquals(9123456789L, found.getReceiverPhno());
@@ -47,16 +47,39 @@ class TransferRepositoryTest {
     }
 
     @Test
-    void findByIdempotencyKey_unknownKey_isEmpty() {
-        assertTrue(repository.findByIdempotencyKey("nothing").isEmpty());
+    void findByPayerPhnoAndIdempotencyKey_unknownKey_isEmpty() {
+        assertTrue(repository.findByPayerPhnoAndIdempotencyKey(9876543210L, "nothing").isEmpty());
+    }
+
+    // Scoped to the given payer: someone else's transfer using the identical key string must never be found by
+    // this lookup, the same way it must never be blocked by it either (see the tests below).
+    @Test
+    void findByPayerPhnoAndIdempotencyKey_isScopedToTheGivenPayer_notGlobal() {
+        repository.save(transfer("same-key", 9876543210L, 9123456789L, 250));
+        repository.save(transfer("same-key", 9123456789L, 9876543210L, 999));
+
+        assertEquals(0, BigDecimal.valueOf(250).compareTo(
+                repository.findByPayerPhnoAndIdempotencyKey(9876543210L, "same-key").orElseThrow().getAmount()));
+        assertEquals(0, BigDecimal.valueOf(999).compareTo(
+                repository.findByPayerPhnoAndIdempotencyKey(9123456789L, "same-key").orElseThrow().getAmount()));
     }
 
     @Test
-    void database_rejectsTwoTransfersWithTheSameIdempotencyKey() {
+    void database_rejectsTwoTransfersFromTheSamePayerWithTheSameIdempotencyKey() {
         repository.saveAndFlush(transfer("key-1", 9876543210L, 9123456789L, 250));
 
         assertThrows(DataIntegrityViolationException.class,
-                () -> repository.saveAndFlush(transfer("key-1", 9123456789L, 9876543210L, 999)));
+                () -> repository.saveAndFlush(transfer("key-1", 9876543210L, 9000000001L, 999)));
+    }
+
+    // The fix this class exists to verify: two DIFFERENT payers reusing the same key string (their own
+    // key-generation schemes just happened to collide) is not a conflict - each is its own, unrelated transfer.
+    @Test
+    void database_allowsTwoDifferentPayersToUseTheSameIdempotencyKey() {
+        repository.saveAndFlush(transfer("key-1", 9876543210L, 9123456789L, 250));
+        repository.saveAndFlush(transfer("key-1", 9123456789L, 9876543210L, 999));
+
+        assertEquals(2, repository.count());
     }
 
     @Test
