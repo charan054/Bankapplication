@@ -105,6 +105,28 @@
         .admin-key-status.set { color: var(--green); }
         .admin-key-status.unset { color: var(--red); }
 
+        .session-bar {
+          display: inline-flex;
+          align-items: center;
+          gap: 12px;
+          background: rgba(255,255,255,0.12);
+          border: 1px solid rgba(255,255,255,0.24);
+          border-radius: 999px;
+          padding: 10px 18px;
+          margin-top: 14px;
+          font-weight: 800;
+          font-size: 14px;
+        }
+
+        .session-bar button {
+          width: auto;
+          padding: 8px 16px;
+          font-size: 13px;
+          background: white;
+          color: var(--navy);
+          box-shadow: none;
+        }
+
         .grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
@@ -264,18 +286,24 @@
     <div class="hero-badge">🏦 Charan Banking Service — Admin Console</div>
     <h1>Charan Banking Service</h1>
     <p>Manage users, deposits, withdrawals, profile, transactions and account operations.</p>
+    <div class="session-bar" id="sessionBar" style="display:none">
+        <span>Admin key active in this browser</span>
+        <button onclick="clearAdminKey()">Change Key</button>
+    </div>
 </header>
 
 <main class="container">
 
-    <div class="admin-key-card">
-        <strong>Admin Key</strong>
-        <input type="password" id="adminKey" placeholder="Paste the ADMIN_API_KEY value" />
-        <button style="width:auto;padding:14px 20px" onclick="saveAdminKey()">Save</button>
-        <span id="adminKeyStatus" class="admin-key-status unset">Not set</span>
-    </div>
+    <section id="keySection">
+        <div class="admin-key-card">
+            <strong>Admin Key</strong>
+            <input type="password" id="adminKey" placeholder="Paste the ADMIN_API_KEY value" />
+            <button style="width:auto;padding:14px 20px" onclick="saveAdminKey()">Save</button>
+            <span id="adminKeyStatus" class="admin-key-status unset">Not set</span>
+        </div>
+    </section>
 
-    <section class="grid">
+    <section class="grid" id="dashboardSection" style="display:none">
 
         <div class="card">
             <div class="card-title">
@@ -451,15 +479,19 @@
       try { return localStorage.getItem("bankAdminKey") || ""; } catch (e) { return ""; }
     }
 
+    // Single source of truth for which screen is showing: no key sees only the key-entry card, a saved key
+    // sees the admin feature grid and the one "Change Key" control - never both at once. There's no server-side
+    // "login" call here (the key is only ever proven right or wrong by an actual admin API call), so "logged
+    // in" just means a key is present in this browser, not that it's necessarily correct.
     function updateAdminKeyStatus() {
+      const hasKey = !!readStoredAdminKey();
       const el = document.getElementById("adminKeyStatus");
-      if (readStoredAdminKey()) {
-        el.textContent = "Saved in this browser";
-        el.className = "admin-key-status set";
-      } else {
-        el.textContent = "Not set - admin actions will fail";
-        el.className = "admin-key-status unset";
-      }
+      el.textContent = hasKey ? "Saved in this browser" : "Not set - admin actions will fail";
+      el.className = "admin-key-status " + (hasKey ? "set" : "unset");
+
+      document.getElementById("sessionBar").style.display = hasKey ? "inline-flex" : "none";
+      document.getElementById("keySection").style.display = hasKey ? "none" : "block";
+      document.getElementById("dashboardSection").style.display = hasKey ? "grid" : "none";
     }
 
     function saveAdminKey() {
@@ -471,6 +503,12 @@
       document.getElementById("adminKey").value = "";
       updateAdminKeyStatus();
       showStatus(value ? "Admin key saved in this browser." : "Admin key cleared.", "success");
+    }
+
+    function clearAdminKey() {
+      try { localStorage.removeItem("bankAdminKey"); } catch (e) { /* storage blocked */ }
+      updateAdminKeyStatus();
+      showStatus("Admin key cleared. Enter a key to continue.", "success");
     }
 
     async function apiCall(url, options = {}) {
