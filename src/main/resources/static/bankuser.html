@@ -96,6 +96,18 @@
           margin: -18px auto 50px;
         }
 
+        .login-wrap {
+          display: flex;
+          justify-content: center;
+          flex-wrap: wrap;
+          gap: 22px;
+        }
+
+        .login-card {
+          width: 100%;
+          max-width: 420px;
+        }
+
         .grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
@@ -250,16 +262,16 @@
     <div class="hero-badge">👤 User Banking Portal</div>
     <h1>Charan Banking Service</h1>
     <p>Register, log in, deposit, withdraw, update mobile number and download your transaction statement.</p>
-    <div class="session-bar">
+    <div class="session-bar" id="sessionBar" style="display:none">
         <span id="sessionStatus">Not logged in</span>
         <button onclick="logoutUser()">Logout</button>
     </div>
 </header>
 
 <main class="container">
-    <section class="grid">
+    <section class="login-wrap" id="loginSection">
 
-        <div class="card">
+        <div class="card login-card">
             <div class="card-title">
                 <div class="icon">📝</div>
                 <h2>Register</h2>
@@ -274,7 +286,7 @@
             <button class="green" onclick="registerUser()">Register</button>
         </div>
 
-        <div class="card">
+        <div class="card login-card">
             <div class="card-title">
                 <div class="icon">🔐</div>
                 <h2>Login</h2>
@@ -285,6 +297,10 @@
             <input type="password" id="loginPin" placeholder="PIN" />
             <button class="purple" onclick="loginUser()">Login</button>
         </div>
+
+    </section>
+
+    <section class="grid" id="dashboardSection" style="display:none">
 
         <div class="card">
             <div class="card-title">
@@ -377,8 +393,14 @@
       updateSessionBar();
     }
 
+    // Single source of truth for which screen is showing: logged out sees only Register/Login, logged in sees
+    // the account dashboard and the one logout control in the header - never both at once.
     function updateSessionBar() {
-      document.getElementById("sessionStatus").textContent = sessionToken ? `Logged in as ${sessionName}` : "Not logged in";
+      const loggedIn = !!sessionToken;
+      document.getElementById("sessionBar").style.display = loggedIn ? "inline-flex" : "none";
+      document.getElementById("sessionStatus").textContent = loggedIn ? `Logged in as ${sessionName}` : "Not logged in";
+      document.getElementById("loginSection").style.display = loggedIn ? "none" : "flex";
+      document.getElementById("dashboardSection").style.display = loggedIn ? "grid" : "none";
     }
 
     function requireLogin() {
@@ -391,7 +413,7 @@
       return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
     }
 
-    async function apiCall(url, options = {}) {
+    async function apiCall(url, options = {}, { showErrorTab = true } = {}) {
       try {
         showStatus("Processing request...", "");
         const headers = { ...(options.headers || {}) };
@@ -416,7 +438,7 @@
         }
       } catch (error) {
         showStatus("Request failed: " + error.message, "error");
-        openResultTab("Request Failed", { error: error.message });
+        if (showErrorTab) openResultTab("Request Failed", { error: error.message });
         throw error;
       }
     }
@@ -546,11 +568,15 @@
       const pin = document.getElementById("loginPin").value;
       if (!phno || !pin) return showStatus("Please enter mobile number and PIN.", "error");
 
-      const data = await apiCall(`${BASE_URL}/login`, jsonRequest("POST", { phno: Number(phno), pin }));
-      storeSession(data.token, data.name);
-      document.getElementById("loginPin").value = "";
-      // the token itself is never shown or printed
-      showStatus(`Logged in as ${data.name}.`, "success");
+      try {
+        const data = await apiCall(`${BASE_URL}/login`, jsonRequest("POST", { phno: Number(phno), pin }), { showErrorTab: false });
+        storeSession(data.token, data.name);
+        document.getElementById("loginPin").value = "";
+        // the token itself is never shown or printed
+        showStatus(`Logged in as ${data.name}.`, "success");
+      } catch (error) {
+        // apiCall already showed the reason in the toast; stay on the login page, nothing else to do
+      }
     }
 
     async function logoutUser() {
