@@ -529,6 +529,60 @@ class BankApplicationIntegrationTest {
         assertEquals(0, bankRepository.count());
     }
 
+    // ---------- session lifecycle: a phone number's meaning can change, an old token must not survive it ----------
+
+    @Test
+    void deletingAnAccount_invalidatesItsToken_soItCannotHijackWhoeverRegistersTheNumberNext() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        String staleToken = login(PHNO_A, PIN);
+        mockMvc.perform(as(staleToken, delete("/bank/me"))).andExpect(status().isOk());
+
+        createUser(PHNO_A, AADHAR_B);   // someone else registers with the now-freed number
+
+        mockMvc.perform(as(staleToken, get("/bank/me"))).andExpect(status().isUnauthorized());
+        mockMvc.perform(as(staleToken, put("/bank/deposit")).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":500}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void changingPhoneNumber_invalidatesTheOldToken() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        String oldToken = login(PHNO_A, PIN);
+
+        mockMvc.perform(as(oldToken, put("/bank/update-phone")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"newPhno\":" + PHNO_B + "}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(as(oldToken, get("/bank/me"))).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void adminResettingAPin_invalidatesAnySessionOpenedUnderTheOldOne() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        String token = login(PHNO_A, PIN);
+
+        mockMvc.perform(asAdmin(put("/bank/admin/set-pin")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":" + PHNO_A + ",\"newPin\":\"5678\"}"))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(as(token, get("/bank/me"))).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void myTransactions_doesNotLeakThePreviousOwnersHistory_whenAPhoneNumberIsReused() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        depositByPhno(PHNO_A, "500");
+        String oldOwnerToken = login(PHNO_A, PIN);
+        mockMvc.perform(as(oldOwnerToken, delete("/bank/me"))).andExpect(status().isOk());
+
+        createUser(PHNO_A, AADHAR_B);   // a different customer now owns this number
+        String newOwnerToken = login(PHNO_A, PIN);
+
+        mockMvc.perform(as(newOwnerToken, get("/bank/my-transactions")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0));
+    }
+
     // ---------- atomicity: a payment happens completely or not at all ----------
 
     @Test

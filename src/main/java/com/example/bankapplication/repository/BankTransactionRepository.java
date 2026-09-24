@@ -19,6 +19,13 @@ public interface BankTransactionRepository extends JpaRepository<BankTransaction
             + "AND (:to IS NULL OR t.createdAt <= :to)")
     Page<BankTransaction> findByPhno(@Param("phno") long phno, @Param("from") Instant from, @Param("to") Instant to, Pageable pageable);
 
+    // Scoped to the account itself rather than a phone number value, so a number that gets reassigned to a
+    // different account after this one is deleted/renamed never mixes the two accounts' history together.
+    @Query("SELECT t FROM BankTransaction t WHERE t.userId = :userId "
+            + "AND (:from IS NULL OR t.createdAt >= :from) "
+            + "AND (:to IS NULL OR t.createdAt <= :to)")
+    Page<BankTransaction> findByUserId(@Param("userId") long userId, @Param("from") Instant from, @Param("to") Instant to, Pageable pageable);
+
     // null when the table is empty
     @Query("select max(t.transactionId) from BankTransaction t")
     Long findMaxTransactionId();
