@@ -388,6 +388,7 @@
                 <span id="transactionsPageLabel" class="pager-label"></span>
                 <button type="button" class="pager-btn" id="transactionsNextBtn" onclick="changeTransactionsPage(1)" disabled>Next &rsaquo;</button>
             </div>
+            <button type="button" onclick="exportStatementCsv()">Export as CSV</button>
         </div>
 
     </section>
@@ -690,6 +691,57 @@
       document.getElementById("transactionsPageLabel").textContent = `Page ${data.page + 1} of ${totalPages}`;
       document.getElementById("transactionsPrevBtn").disabled = data.page <= 0;
       document.getElementById("transactionsNextBtn").disabled = data.page + 1 >= totalPages;
+    }
+
+    const EXPORT_PAGE_SIZE = 100;
+    const EXPORT_MAX_PAGES = 500;   // a generous cap (50,000 rows) against a runaway loop, not a realistic limit
+
+    // Downloads the FULL statement matching the current date-range filter, not just the page on screen - fetches
+    // every page at the largest allowed size and concatenates them, since the browser has no direct access to
+    // export server-side.
+    async function exportStatementCsv() {
+      if (!requireLogin()) return;
+      const from = document.getElementById("transactionsFrom").value;
+      const to = document.getElementById("transactionsTo").value;
+
+      showStatus("Preparing CSV export...", "");
+      const rows = [];
+      let page = 0;
+      let totalPages = 1;
+      while (page < totalPages && page < EXPORT_MAX_PAGES) {
+        let url = `${BASE_URL}/my-transactions?page=${page}&size=${EXPORT_PAGE_SIZE}`;
+        if (from) url += `&from=${encodeURIComponent(new Date(from).toISOString())}`;
+        if (to) url += `&to=${encodeURIComponent(new Date(to).toISOString())}`;
+
+        const data = await apiCall(url);
+        rows.push(...data.content);
+        totalPages = data.totalPages;
+        page++;
+      }
+
+      downloadCsv(rows, `statement-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`);
+      showStatus(`Exported ${rows.length} transaction(s) as CSV.`, "success");
+    }
+
+    function downloadCsv(rows, filename) {
+      const columns = ["transactionId", "action", "amount", "balance", "createdAt"];
+      const lines = [columns.join(",")].concat(rows.map(row => columns.map(col => csvCell(row[col])).join(",")));
+      const blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    function csvCell(value) {
+      if (value === null || value === undefined) return "";
+      const text = String(value);
+      return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
     }
 
     updateSessionBar();
