@@ -25,6 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +43,7 @@ public class BankService {
     private static final Logger log = LoggerFactory.getLogger(BankService.class);
     static final int MAX_FAILED_LOGIN_ATTEMPTS = 5;
     static final Duration LOCKOUT_DURATION = Duration.ofMinutes(15);
+    private static final int MAX_LOGIN_LOCK_RETRY_ATTEMPTS = 3;
     public static final int DEFAULT_PAGE_SIZE = 20;
     public static final int MAX_PAGE_SIZE = 100;
 
@@ -81,35 +83,66 @@ public class BankService {
      */
     // noRollbackFor: a wrong PIN increments failedLoginAttempts and then throws. Without this, Spring's default
     // rollback-on-unchecked-exception behaviour would undo that save too, silently defeating the lockout.
+    //
+    // Retries on a stale @Version: two logins against the SAME account (right or wrong PIN) can genuinely race
+    // on this row - each attempt re-reads fresh state, so neither a lost increment (which would let a
+    // distributed brute force take more than MAX_FAILED_LOGIN_ATTEMPTS guesses to trip the lockout) nor a stray
+    // 409 for what is just a wrong PIN can happen. saveAndFlush is required for this: a plain save() only
+    // hits the database at commit, by which point the exception would propagate past this method entirely.
     @Transactional(noRollbackFor = InvalidCredentialsException.class)
     public LoginResponse login(long phno, String rawPin)
     {
-        Bank user = userRepository.findByphno(phno);
-        if (user == null)
+        for (int attempt = 1; ; attempt++)
         {
-            throw new InvalidCredentialsException("Invalid phone number or PIN");
+            Bank user = userRepository.findByphno(phno);
+            if (user == null)
+            {
+                throw new InvalidCredentialsException("Invalid phone number or PIN");
+            }
+            if (user.getPinHash() == null)
+            {
+                throw new PinNotSetException("This account has no PIN yet. Ask an administrator to set one.");
+            }
+            Instant now = clock.instant();
+            if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(now))
+            {
+                throw new AccountLockedException("Too many failed attempts. Try again after "
+                        + DateTimeFormatter.ISO_INSTANT.format(user.getLockedUntil()) + ".");
+            }
+            if (!passwordEncoder.matches(rawPin, user.getPinHash()))
+            {
+                try
+                {
+                    registerFailedAttempt(user, now);
+                }
+                catch (ObjectOptimisticLockingFailureException e)
+                {
+                    if (attempt >= MAX_LOGIN_LOCK_RETRY_ATTEMPTS)
+                    {
+                        throw e;
+                    }
+                    continue;
+                }
+                throw new InvalidCredentialsException("Invalid phone number or PIN");
+            }
+            try
+            {
+                user.setFailedLoginAttempts(0);
+                user.setLockedUntil(null);
+                userRepository.saveAndFlush(user);
+            }
+            catch (ObjectOptimisticLockingFailureException e)
+            {
+                if (attempt >= MAX_LOGIN_LOCK_RETRY_ATTEMPTS)
+                {
+                    throw e;
+                }
+                continue;
+            }
+            SessionService.IssuedSession session = sessionService.start(phno);
+            String name = (user.getLastName()+" "+user.getFirstName()).toUpperCase();
+            return new LoginResponse(session.token(), session.expiresAt(), phno, name);
         }
-        if (user.getPinHash() == null)
-        {
-            throw new PinNotSetException("This account has no PIN yet. Ask an administrator to set one.");
-        }
-        Instant now = clock.instant();
-        if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(now))
-        {
-            throw new AccountLockedException("Too many failed attempts. Try again after "
-                    + DateTimeFormatter.ISO_INSTANT.format(user.getLockedUntil()) + ".");
-        }
-        if (!passwordEncoder.matches(rawPin, user.getPinHash()))
-        {
-            registerFailedAttempt(user, now);
-            throw new InvalidCredentialsException("Invalid phone number or PIN");
-        }
-        user.setFailedLoginAttempts(0);
-        user.setLockedUntil(null);
-        userRepository.save(user);
-        SessionService.IssuedSession session = sessionService.start(phno);
-        String name = (user.getLastName()+" "+user.getFirstName()).toUpperCase();
-        return new LoginResponse(session.token(), session.expiresAt(), phno, name);
     }
 
     public void logout(String token)
@@ -125,7 +158,7 @@ public class BankService {
         {
             user.setLockedUntil(now.plus(LOCKOUT_DURATION));
         }
-        userRepository.save(user);
+        userRepository.saveAndFlush(user);
     }
 
     /** Admin-only: bootstraps an account created before login existed, or resets a forgotten PIN. */
