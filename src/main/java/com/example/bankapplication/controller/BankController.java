@@ -196,13 +196,30 @@ public class BankController {
 
     // ---------- shared validation ----------
 
+    // DECIMAL(19,2) can hold at most 17 digits before the decimal point; this stays comfortably under that.
+    private static final int MAX_INTEGER_DIGITS = 15;
+
     // Normalizes to 2 decimal places (rounding, never rejecting extra precision) so every amount stored or
     // echoed back is consistently formatted, regardless of how many decimals the caller sent.
     private BigDecimal requirePositiveAmount(BigDecimal amount) {
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+        if (amount == null) {
             throw new DepositException("Amount too low");
         }
-        return amount.setScale(2, RoundingMode.HALF_UP);
+        // Checked on the RAW value, before setScale ever touches it. setScale grows the unscaled value by
+        // (targetScale - scale()) digits, so a maliciously huge scale (e.g. "1E+2000000000" in the request
+        // JSON) would turn that into a multi-gigabyte allocation. precision() and scale() are cheap to read
+        // even for such a value, since neither has to materialize the fully expanded number.
+        int integerDigits = amount.precision() - amount.scale();
+        if (integerDigits > MAX_INTEGER_DIGITS) {
+            throw new DepositException("Amount too large");
+        }
+        // Positivity is checked AFTER rounding, not before: a sub-cent amount like 0.001 is > 0 but rounds down
+        // to 0.00, and must be rejected as too low rather than "succeeding" as a deposit/withdrawal of nothing.
+        BigDecimal normalized = amount.setScale(2, RoundingMode.HALF_UP);
+        if (normalized.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new DepositException("Amount too low");
+        }
+        return normalized;
     }
 
     private void requireSufficientFunds(Bank account, BigDecimal amount) {
