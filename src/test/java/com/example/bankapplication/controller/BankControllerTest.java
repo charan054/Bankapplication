@@ -354,6 +354,33 @@ class BankControllerTest {
                 .andExpect(content().string("Withdraw Successful Amount Inr : 400.00"));
     }
 
+    // ---------- PUT /bank/deposit, /bank/withdraw: rate limiting per account ----------
+
+    // Uses its own token/account, never PHNO/TOKEN, so this test's budget never mixes with the deposit/withdraw
+    // tests above - and never leaks into them either, thanks to @DirtiesContext.
+    private static final long RATE_LIMITED_PHNO = 9000000002L;
+    private static final String RATE_LIMITED_TOKEN = "rate-limit-test-token";
+
+    @Test
+    @org.springframework.test.annotation.DirtiesContext(methodMode = org.springframework.test.annotation.DirtiesContext.MethodMode.AFTER_METHOD)
+    void depositAndWithdraw_shareOneRateLimitBudgetPerAccount_tooManyRequests_is429() throws Exception {
+        when(sessionService.authenticate(RATE_LIMITED_TOKEN)).thenReturn(RATE_LIMITED_PHNO);
+        when(bankService.depositByphno(eq(RATE_LIMITED_PHNO), any())).thenReturn("Deposit Successful Amount Inr : 10.00");
+
+        for (int i = 0; i < WebConfig.DEFAULT_MAX_MONEY_ATTEMPTS_PER_ACCOUNT; i++) {
+            mockMvc.perform(depositRequest(RATE_LIMITED_TOKEN)).andExpect(status().isOk());
+        }
+
+        mockMvc.perform(depositRequest(RATE_LIMITED_TOKEN))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(content().string("Too many deposit/withdraw requests. Please wait a minute and try again."));
+    }
+
+    private static MockHttpServletRequestBuilder depositRequest(String token) {
+        return put("/bank/deposit").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"amount\":10}");
+    }
+
     @Test
     void updatePhone_usesThePhoneFromTheToken() throws Exception {
         Bank updated = bankWithBalance(0);

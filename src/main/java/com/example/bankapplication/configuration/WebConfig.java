@@ -17,25 +17,34 @@ public class WebConfig implements WebMvcConfigurer {
     // the default) so a test suite that legitimately logs in many times from one simulated address, such as
     // BankApplicationIntegrationTest, can raise it instead of tripping over production-sized traffic assumptions.
     public static final int DEFAULT_MAX_LOGIN_ATTEMPTS_PER_ADDRESS = 10;
+    // Deposit/withdraw had no throttle at all: a stolen or leaked session token could otherwise script unlimited
+    // calls with nothing slowing it down, unlike PhonepayService's equivalent sendmoney limit. Configurable, same
+    // reasoning as the login limit above.
+    public static final int DEFAULT_MAX_MONEY_ATTEMPTS_PER_ACCOUNT = 20;
     static final Duration LOGIN_RATE_WINDOW = Duration.ofMinutes(1);
+    static final Duration MONEY_RATE_WINDOW = Duration.ofMinutes(1);
 
     private final SessionService sessions;
     private final String adminApiKey;
     private final String serviceApiKey;
     private final Clock clock;
     private final int maxLoginAttemptsPerAddress;
+    private final int maxMoneyAttemptsPerAccount;
 
     public WebConfig(SessionService sessions,
                      @Value("${bank.admin.api-key}") String adminApiKey,
                      @Value("${bank.service.api-key}") String serviceApiKey,
                      Clock clock,
                      @Value("${bank.login.rate-limit.max-attempts:" + DEFAULT_MAX_LOGIN_ATTEMPTS_PER_ADDRESS + "}")
-                     int maxLoginAttemptsPerAddress) {
+                     int maxLoginAttemptsPerAddress,
+                     @Value("${bank.money.rate-limit.max-attempts:" + DEFAULT_MAX_MONEY_ATTEMPTS_PER_ACCOUNT + "}")
+                     int maxMoneyAttemptsPerAccount) {
         this.sessions = sessions;
         this.adminApiKey = adminApiKey;
         this.serviceApiKey = serviceApiKey;
         this.clock = clock;
         this.maxLoginAttemptsPerAddress = maxLoginAttemptsPerAddress;
+        this.maxMoneyAttemptsPerAccount = maxMoneyAttemptsPerAccount;
     }
 
     @Override
@@ -56,6 +65,15 @@ public class WebConfig implements WebMvcConfigurer {
                         "/bank/withdraw",
                         "/bank/update-phone",
                         "/bank/my-transactions");
+
+        // Rate-limited per authenticated account (registered AFTER CustomerAuthInterceptor, so the phno attribute
+        // it sets is already there): a stolen or leaked session token must not be able to script unlimited
+        // deposit/withdraw calls with nothing slowing it down.
+        registry.addInterceptor(new RateLimitInterceptor(
+                        new RateLimiter(maxMoneyAttemptsPerAccount, MONEY_RATE_WINDOW, clock),
+                        request -> String.valueOf(request.getAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO)),
+                        "Too many deposit/withdraw requests. Please wait a minute and try again."))
+                .addPathPatterns("/bank/deposit", "/bank/withdraw");
 
         // Trusted callers: act on any account, named by phone/account number in the request. Used by bank.html
         // (admin key) and by PhonepayService's backend calls (service key).
