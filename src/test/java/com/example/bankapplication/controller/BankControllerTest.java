@@ -333,6 +333,41 @@ class BankControllerTest {
         verify(bankService, never()).depositByphno(anyLong(), any());
     }
 
+    // A sub-cent amount is > 0 but rounds down to 0.00 - it must be rejected, not silently "succeed" as a
+    // deposit of nothing.
+    @Test
+    void deposit_subCentAmount_roundsToZero_returns400() throws Exception {
+        mockMvc.perform(asCaller(put("/bank/deposit")).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":0.001}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Amount too low"));
+
+        verify(bankService, never()).depositByphno(anyLong(), any());
+    }
+
+    @Test
+    void deposit_amountWithTooManyIntegerDigits_returns400() throws Exception {
+        // 16 digits before the decimal point - one more than this app allows
+        mockMvc.perform(asCaller(put("/bank/deposit")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":9999999999999999.99}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Amount too large"));
+
+        verify(bankService, never()).depositByphno(anyLong(), any());
+    }
+
+    // The actual resource-exhaustion vector: an extreme scientific-notation exponent would otherwise make
+    // BigDecimal.setScale(2, ...) try to materialize an astronomically large number. This must be rejected
+    // cheaply, from precision()/scale() alone, without ever calling setScale on the raw value.
+    @Test
+    void deposit_pathologicalScientificNotationAmount_isRejectedCheaply_returns400() throws Exception {
+        mockMvc.perform(asCaller(put("/bank/deposit")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":1E+2000000000}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Amount too large"));
+
+        verify(bankService, never()).depositByphno(anyLong(), any());
+    }
+
     @Test
     void withdraw_ownAccount_insufficientFunds_returns400() throws Exception {
         when(bankService.findByphno(PHNO)).thenReturn(bankWithBalance(10));
