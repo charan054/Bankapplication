@@ -234,6 +234,30 @@ class BankControllerTest {
         verifyNoInteractions(bankService);
     }
 
+    // Only a 4-6 digit PIN can ever have been set (registration/admin-reset both enforce that), so anything
+    // else is rejected here - a longer PIN would otherwise reach BCrypt and trip its 72-byte input limit,
+    // surfacing as a bare 500 instead of this clean 400.
+    @Test
+    void login_pinTooLong_returns400_neverReachesTheService() throws Exception {
+        String oversizedPin = "1".repeat(100);
+
+        mockMvc.perform(post("/bank/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":9876543210,\"pin\":\"" + oversizedPin + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("PIN must be 4 to 6 digits"));
+
+        verifyNoInteractions(bankService);
+    }
+
+    @Test
+    void login_pinWithNonDigits_returns400() throws Exception {
+        mockMvc.perform(post("/bank/login").contentType(MediaType.APPLICATION_JSON).content("{\"phno\":9876543210,\"pin\":\"12ab\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("PIN must be 4 to 6 digits"));
+
+        verifyNoInteractions(bankService);
+    }
+
     @Test
     void login_wrongCredentials_returns401() throws Exception {
         when(bankService.login(PHNO, "0000")).thenThrow(new com.example.bankapplication.exception.InvalidCredentialsException("Invalid phone number or PIN"));
