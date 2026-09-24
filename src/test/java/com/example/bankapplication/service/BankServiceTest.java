@@ -553,7 +553,7 @@ class BankServiceTest {
         Bank receiver = bank(1000000001L, 9123456789L, 222222222222L, 200);
         when(userRepository.findByphno(9876543210L)).thenReturn(payer);
         when(userRepository.findByphno(9123456789L)).thenReturn(receiver);
-        when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
+        when(transferRepository.findByPayerPhnoAndIdempotencyKey(9876543210L, "key-1")).thenReturn(Optional.empty());
 
         String result = bankService.transfer(9876543210L, 9123456789L, money(250), "key-1");
 
@@ -568,7 +568,7 @@ class BankServiceTest {
         Bank receiver = bank(1000000001L, 9123456789L, 222222222222L, 0);
         when(userRepository.findByphno(9876543210L)).thenReturn(payer);
         when(userRepository.findByphno(9123456789L)).thenReturn(receiver);
-        when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
+        when(transferRepository.findByPayerPhnoAndIdempotencyKey(9876543210L, "key-1")).thenReturn(Optional.empty());
         when(bankTransactionRepository.findMaxTransactionId()).thenReturn(100005L);
 
         bankService.transfer(9876543210L, 9123456789L, money(250), "key-1");
@@ -599,7 +599,7 @@ class BankServiceTest {
         previous.setPayerPhno(9876543210L);
         previous.setReceiverPhno(9123456789L);
         previous.setAmount(money(250));
-        when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(previous));
+        when(transferRepository.findByPayerPhnoAndIdempotencyKey(9876543210L, "key-1")).thenReturn(Optional.of(previous));
 
         String result = bankService.transfer(9876543210L, 9123456789L, money(250), "key-1");
 
@@ -616,11 +616,29 @@ class BankServiceTest {
         previous.setPayerPhno(9876543210L);
         previous.setReceiverPhno(9123456789L);
         previous.setAmount(money(250));
-        when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(previous));
+        when(transferRepository.findByPayerPhnoAndIdempotencyKey(9876543210L, "key-1")).thenReturn(Optional.of(previous));
 
         assertThrows(InvalidRequestException.class,
                 () -> bankService.transfer(9876543210L, 9123456789L, money(999), "key-1"));
         verifyNoInteractions(userRepository, bankTransactionRepository, bankKafkaProducer);
+    }
+
+    // The key is scoped per payer: a different customer reusing the same key string (their own generation
+    // scheme just happened to produce it) is a brand new, unrelated transfer - not a collision with someone
+    // else's request, and not something that should ever get blocked or silently matched against it.
+    @Test
+    void transfer_sameIdempotencyKey_differentPayer_isTreatedAsAWhollyUnrelatedTransfer() {
+        Bank payer = bank(1000000002L, 9000000001L, 333333333333L, 1000);
+        Bank receiver = bank(1000000001L, 9123456789L, 222222222222L, 0);
+        when(userRepository.findByphno(9000000001L)).thenReturn(payer);
+        when(userRepository.findByphno(9123456789L)).thenReturn(receiver);
+        // someone else's transfer already used "key-1", but that lookup is scoped to THAT payer, not this one
+        when(transferRepository.findByPayerPhnoAndIdempotencyKey(9000000001L, "key-1")).thenReturn(Optional.empty());
+
+        String result = bankService.transfer(9000000001L, 9123456789L, money(250), "key-1");
+
+        assertEquals("Transfer Successful Amount Inr : 250.0", result);
+        assertMoney(750, payer.getBalance());
     }
 
     @Test
@@ -711,7 +729,7 @@ class BankServiceTest {
         Bank receiver = bank(1000000001L, 9123456789L, 222222222222L, 0);
         when(userRepository.findByphno(9876543210L)).thenReturn(payer);
         when(userRepository.findByphno(9123456789L)).thenReturn(receiver);
-        when(transferRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
+        when(transferRepository.findByPayerPhnoAndIdempotencyKey(9876543210L, "key-1")).thenReturn(Optional.empty());
 
         bankService.transfer(9876543210L, 9123456789L, money(250), "key-1");
 
