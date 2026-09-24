@@ -245,6 +245,33 @@
         .success { color: var(--green); }
         .error { color: var(--red); }
 
+        .pager {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin-top: 12px;
+        }
+
+        .pager-btn {
+          width: auto;
+          padding: 9px 14px;
+          font-size: 13px;
+        }
+
+        .pager-btn:disabled {
+          opacity: .45;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        .pager-label {
+          font-size: 13px;
+          font-weight: 800;
+          color: var(--muted);
+          white-space: nowrap;
+        }
+
         @media (max-width: 1050px) {
           .grid { grid-template-columns: repeat(2, 1fr); }
         }
@@ -352,11 +379,15 @@
                 <span class="method">GET</span>
             </div>
             <p>View your own transaction statement. Requires login.</p>
-            <input type="number" id="transactionsPage" placeholder="Page (default 0)" min="0" />
             <input type="number" id="transactionsSize" placeholder="Page size (default 20)" min="1" max="100" />
             <input type="datetime-local" id="transactionsFrom" placeholder="From (optional)" />
             <input type="datetime-local" id="transactionsTo" placeholder="To (optional)" />
             <button class="purple" onclick="displayTransactions()">View Statement</button>
+            <div class="pager">
+                <button type="button" class="pager-btn" id="transactionsPrevBtn" onclick="changeTransactionsPage(-1)" disabled>&lsaquo; Prev</button>
+                <span id="transactionsPageLabel" class="pager-label"></span>
+                <button type="button" class="pager-btn" id="transactionsNextBtn" onclick="changeTransactionsPage(1)" disabled>Next &rsaquo;</button>
+            </div>
         </div>
 
     </section>
@@ -625,20 +656,40 @@
       openResultTab("Update Mobile Number", data);
     }
 
+    let transactionsPage = 0;
+
     async function displayTransactions() {
+      transactionsPage = 0;
+      await loadTransactionsPage();
+    }
+
+    function changeTransactionsPage(delta) {
+      transactionsPage += delta;
+      loadTransactionsPage();
+    }
+
+    async function loadTransactionsPage() {
       if (!requireLogin()) return;
-      const page = document.getElementById("transactionsPage").value || 0;
       const size = document.getElementById("transactionsSize").value || 20;
       const from = document.getElementById("transactionsFrom").value;
       const to = document.getElementById("transactionsTo").value;
 
-      let url = `${BASE_URL}/my-transactions?page=${encodeURIComponent(page)}&size=${encodeURIComponent(size)}`;
+      let url = `${BASE_URL}/my-transactions?page=${transactionsPage}&size=${encodeURIComponent(size)}`;
       if (from) url += `&from=${encodeURIComponent(new Date(from).toISOString())}`;
       if (to) url += `&to=${encodeURIComponent(new Date(to).toISOString())}`;
 
       const data = await apiCall(url);
+      transactionsPage = data.page;
+      updateTransactionsPager(data);
       showStatus("Statement loaded successfully. Result opened in new tab.", "success");
       openResultTab("Transaction Statement", data.content, data);
+    }
+
+    function updateTransactionsPager(data) {
+      const totalPages = Math.max(data.totalPages, 1);
+      document.getElementById("transactionsPageLabel").textContent = `Page ${data.page + 1} of ${totalPages}`;
+      document.getElementById("transactionsPrevBtn").disabled = data.page <= 0;
+      document.getElementById("transactionsNextBtn").disabled = data.page + 1 >= totalPages;
     }
 
     updateSessionBar();
