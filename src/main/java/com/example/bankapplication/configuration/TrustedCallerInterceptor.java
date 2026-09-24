@@ -5,6 +5,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+
 /**
  * Guards the endpoints that act on ANY account by phone/account number: viewing all users, deposit/withdraw by
  * account number, deleting a user, resetting a PIN, and the exact three endpoints PhonepayService calls
@@ -36,7 +39,13 @@ public class TrustedCallerInterceptor implements HandlerInterceptor {
         throw new UnauthorizedException("A valid X-Admin-Key or X-Service-Key header is required for this operation.");
     }
 
+    // MessageDigest.isEqual compares every byte regardless of where the first mismatch is, unlike String.equals
+    // (which returns as soon as it finds one). Without that, a caller who can measure response timing precisely
+    // enough could recover the key one byte at a time instead of needing to guess it outright.
     private boolean matches(String provided, String expected) {
-        return provided != null && !provided.isEmpty() && provided.equals(expected);
+        if (provided == null || provided.isEmpty()) {
+            return false;
+        }
+        return MessageDigest.isEqual(provided.getBytes(StandardCharsets.UTF_8), expected.getBytes(StandardCharsets.UTF_8));
     }
 }
