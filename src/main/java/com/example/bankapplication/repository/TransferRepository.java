@@ -8,5 +8,5 @@ import java.util.Optional;
 
 @Repository
 public interface TransferRepository extends JpaRepository<Transfer, Long> {
-    Optional<Transfer> findByIdempotencyKey(String idempotencyKey);
+    Optional<Transfer> findByPayerPhnoAndIdempotencyKey(long payerPhno, String idempotencyKey);
 }
