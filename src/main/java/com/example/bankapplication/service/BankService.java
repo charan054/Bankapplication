@@ -141,6 +141,9 @@ public class BankService {
         user.setFailedLoginAttempts(0);
         user.setLockedUntil(null);
         userRepository.save(user);
+        // an admin resetting a PIN is usually a response to it being compromised - a session opened under the
+        // old PIN must not go on working after that
+        sessionService.invalidateAllFor(phno);
     }
 
     // ---------- registration ----------
@@ -388,7 +391,11 @@ public class BankService {
             throw new UserNotFoundException("User not found");
         }
         notifyAfterCommit("Mobile number updated old phno: "+mask(phno)+" New phno: "+mask(newphno));
-        return userRepository.save(exis);
+        Bank saved = userRepository.save(exis);
+        // a token issued under the old number must not go on authenticating as this account (or, worse, as
+        // whoever the old number belongs to next) - the caller has to log in again under the new number
+        sessionService.invalidateAllFor(phno);
+        return saved;
     }
     @Transactional
     public void deleteByPhno(long phno)
@@ -398,6 +405,9 @@ public class BankService {
         userRepository.delete(exis);
         else
             throw new UserNotFoundException("User not found");
+        // otherwise a still-valid token survives account deletion and can end up authenticating against
+        // whoever registers with this phone number next
+        sessionService.invalidateAllFor(phno);
     }
     public BankDto displayUserByPhno(long phno)
     {
@@ -478,6 +488,22 @@ public class BankService {
         if(b==null)
             throw new UserNotFoundException("User not found");
         return PageResponse.of(bankTransactionRepository.findByPhno(phno, from, to, pageable(page, size, Sort.by("id").ascending())));
+    }
+
+    // Self-service only: scoped to the caller's own account identity (userId), not the phone number value used
+    // to look them up. displayTransactionByPhno() above is for the trusted-caller /bank/transactions endpoint,
+    // which is deliberately allowed to look up a phno's full history even for a deleted account - this one must
+    // not, or a number reassigned to a new customer would show them (or leak to them) the previous owner's history.
+    public PageResponse<BankTransaction> displayMyTransactions(long phno, int page, int size, Instant from, Instant to)
+    {
+        if (from != null && to != null && from.isAfter(to))
+        {
+            throw new InvalidRequestException("'from' must not be after 'to'.");
+        }
+        Bank b=userRepository.findByphno(phno);
+        if(b==null)
+            throw new UserNotFoundException("User not found");
+        return PageResponse.of(bankTransactionRepository.findByUserId(b.getUserId(), from, to, pageable(page, size, Sort.by("id").ascending())));
     }
 
     // page/size come straight from a query parameter, so out-of-range values are a caller mistake, not a crash.

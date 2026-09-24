@@ -397,26 +397,26 @@ class BankControllerTest {
         BankTransaction t = new BankTransaction();
         t.setTransactionId(100000);
         t.setAction("Credit");
-        when(bankService.displayTransactionByPhno(eq(PHNO), anyInt(), anyInt(), isNull(), isNull())).thenReturn(pageOf(List.of(t)));
+        when(bankService.displayMyTransactions(eq(PHNO), anyInt(), anyInt(), isNull(), isNull())).thenReturn(pageOf(List.of(t)));
 
         mockMvc.perform(asCaller(get("/bank/my-transactions")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].action").value("Credit"));
 
-        verify(bankService, never()).displayTransactionByPhno(eq(9000000001L), anyInt(), anyInt(), any(), any());
+        verify(bankService, never()).displayMyTransactions(eq(9000000001L), anyInt(), anyInt(), any(), any());
     }
 
     @Test
     void myTransactions_passesFromAndToThrough() throws Exception {
         Instant from = Instant.parse("2026-01-01T00:00:00Z");
         Instant to = Instant.parse("2026-01-31T00:00:00Z");
-        when(bankService.displayTransactionByPhno(PHNO, 0, 20, from, to)).thenReturn(pageOf(List.of()));
+        when(bankService.displayMyTransactions(PHNO, 0, 20, from, to)).thenReturn(pageOf(List.of()));
 
         mockMvc.perform(asCaller(get("/bank/my-transactions"))
                         .param("from", from.toString()).param("to", to.toString()))
                 .andExpect(status().isOk());
 
-        verify(bankService).displayTransactionByPhno(PHNO, 0, 20, from, to);
+        verify(bankService).displayMyTransactions(PHNO, 0, 20, from, to);
     }
 
     @Test
