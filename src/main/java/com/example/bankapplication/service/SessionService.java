@@ -84,6 +84,14 @@ public class SessionService {
         }
     }
 
+    // Called whenever a phone number stops meaning what it used to (the account behind it was deleted, its
+    // number was changed, or its PIN was reset by an admin) - otherwise a token issued under the old meaning
+    // stays valid and can end up authenticating against whoever the phone number belongs to next.
+    @Transactional
+    public void invalidateAllFor(long phno) {
+        sessions.deleteByPhno(phno);
+    }
+
     // start()/authenticate() only ever clean up sessions belonging to the phone number they already happen to be
     // touching. A customer who logs in once and never comes back would otherwise leave a session row forever.
     @Scheduled(fixedRateString = "${bank.session.cleanup-interval-minutes:60}", timeUnit = TimeUnit.MINUTES)

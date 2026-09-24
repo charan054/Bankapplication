@@ -107,6 +107,22 @@ class BankSessionRepositoryTest {
     }
 
     @Test
+    void deleteByPhno_removesEveryOneOfThatPersonsSessions_expiredOrNot() {
+        repository.save(session("asha-old", ASHA, NOW.minusSeconds(1)));        // expired
+        repository.save(session("asha-live", ASHA, NOW.plusSeconds(1800)));     // still valid
+        repository.save(session("ravi-live", RAVI, NOW.plusSeconds(1800)));     // someone else's, untouched
+        flushAndClear();
+
+        long removed = repository.deleteByPhno(ASHA);
+        flushAndClear();
+
+        assertEquals(2, removed);
+        assertTrue(repository.findByTokenHash("asha-old").isEmpty());
+        assertTrue(repository.findByTokenHash("asha-live").isEmpty());
+        assertTrue(repository.findByTokenHash("ravi-live").isPresent());
+    }
+
+    @Test
     void deleteByExpiresAtBefore_removesEveryExpiredSession_regardlessOfWhoOwnsIt() {
         repository.save(session("asha-old", ASHA, NOW.minusSeconds(1)));        // expired
         repository.save(session("asha-live", ASHA, NOW.plusSeconds(1800)));     // still valid

@@ -168,6 +168,15 @@ class SessionServiceTest {
         verify(repository, never()).deleteByTokenHash(any());
     }
 
+    // ---------- invalidateAllFor ----------
+
+    @Test
+    void invalidateAllFor_removesEverySessionForThatPhoneNumber() {
+        service.invalidateAllFor(PHNO);
+
+        verify(repository).deleteByPhno(PHNO);
+    }
+
     // ---------- purgeExpiredSessions (scheduled housekeeping) ----------
 
     @Test
