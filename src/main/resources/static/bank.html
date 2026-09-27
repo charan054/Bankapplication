@@ -256,14 +256,27 @@
         }
 
         .status-panel {
-          margin-top: 24px;
+          position: fixed;
+          top: 24px;
+          right: 24px;
+          max-width: 340px;
           background: white;
-          border-radius: 22px;
-          padding: 18px 22px;
+          border-radius: 16px;
+          padding: 14px 18px;
           box-shadow: var(--shadow);
           border-left: 6px solid #38bdf8;
           font-weight: 850;
           color: #0369a1;
+          z-index: 1000;
+          opacity: 0;
+          transform: translateY(-12px);
+          pointer-events: none;
+          transition: opacity 0.25s ease, transform 0.25s ease;
+        }
+
+        .status-panel.visible {
+          opacity: 1;
+          transform: translateY(0);
         }
 
         .success { color: var(--green); }
@@ -465,9 +478,7 @@
 
     </section>
 
-    <div id="status" class="status-panel">
-        Ready. Results will open in a separate browser tab with a professional table view.
-    </div>
+    <div id="status" class="status-panel"></div>
 </main>
 
 <script>
@@ -537,10 +548,20 @@
       }
     }
 
+    let statusHideTimer = null;
+
+    // A small top-right toast rather than a full-width bar - shows immediately, then fades out on its own
+    // after 4 seconds so it never sits there blocking the page. Each call resets the timer, so a result that
+    // follows a "Processing request..." toast gets its own full 4 seconds to be read.
     function showStatus(message, className) {
       const status = document.getElementById("status");
-      status.className = "status-panel " + (className || "");
+      status.className = "status-panel visible " + (className || "");
       status.textContent = message;
+
+      clearTimeout(statusHideTimer);
+      statusHideTimer = setTimeout(() => {
+        status.classList.remove("visible");
+      }, 4000);
     }
 
     function escapeHtml(value) {
