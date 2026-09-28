@@ -245,6 +245,15 @@
         .success { color: var(--green); }
         .error { color: var(--red); }
 
+        .hidden { display: none !important; }
+
+        .field-error {
+          color: var(--red);
+          font-size: 13px;
+          font-weight: 700;
+          margin: -6px 0 12px;
+        }
+
         .pager {
           display: flex;
           align-items: center;
@@ -322,6 +331,7 @@
             <p>Log in with your mobile number and PIN. Your login is private to this browser tab.</p>
             <input type="number" id="loginPhno" placeholder="Mobile Number" />
             <input type="password" id="loginPin" placeholder="PIN" />
+            <div id="loginError" class="field-error hidden"></div>
             <button class="purple" onclick="loginUser()">Login</button>
         </div>
 
@@ -445,7 +455,7 @@
       return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
     }
 
-    async function apiCall(url, options = {}, { showErrorTab = true } = {}) {
+    async function apiCall(url, options = {}, { showErrorTab = true, showErrorBanner = true } = {}) {
       try {
         showStatus("Processing request...", "");
         const headers = { ...(options.headers || {}) };
@@ -469,7 +479,9 @@
           return { message: text };
         }
       } catch (error) {
-        showStatus("Request failed: " + error.message, "error");
+        // A caller that renders the error inline itself (e.g. login, right in its own card) sets
+        // showErrorBanner: false so the reason isn't ALSO announced in the shared bottom-of-page status panel.
+        if (showErrorBanner) showStatus("Request failed: " + error.message, "error");
         if (showErrorTab) openResultTab("Request Failed", { error: error.message });
         throw error;
       }
@@ -598,16 +610,27 @@
     async function loginUser() {
       const phno = document.getElementById("loginPhno").value;
       const pin = document.getElementById("loginPin").value;
-      if (!phno || !pin) return showStatus("Please enter mobile number and PIN.", "error");
+      const errorBox = document.getElementById("loginError");
+      errorBox.classList.add("hidden");
+
+      if (!phno || !pin) {
+        errorBox.textContent = "Please enter mobile number and PIN.";
+        errorBox.classList.remove("hidden");
+        return;
+      }
 
       try {
-        const data = await apiCall(`${BASE_URL}/login`, jsonRequest("POST", { phno: Number(phno), pin }), { showErrorTab: false });
+        const data = await apiCall(`${BASE_URL}/login`, jsonRequest("POST", { phno: Number(phno), pin }),
+          { showErrorTab: false, showErrorBanner: false });
         storeSession(data.token, data.name);
         document.getElementById("loginPin").value = "";
         // the token itself is never shown or printed
         showStatus(`Logged in as ${data.name}.`, "success");
       } catch (error) {
-        // apiCall already showed the reason in the toast; stay on the login page, nothing else to do
+        // Shown right in the Login card instead of the shared bottom-of-page status panel, so the reason for a
+        // failed login sits next to the fields that caused it.
+        errorBox.textContent = error.message;
+        errorBox.classList.remove("hidden");
       }
     }
 
