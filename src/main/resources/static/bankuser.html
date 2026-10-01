@@ -307,7 +307,7 @@
 <main class="container">
     <section class="login-wrap" id="loginSection">
 
-        <div class="card login-card">
+        <div class="card login-card" id="registerCard">
             <div class="card-title">
                 <div class="icon">📝</div>
                 <h2>Register</h2>
@@ -319,10 +319,11 @@
             <input type="number" id="aadharNumber" placeholder="Aadhar Number" />
             <input type="number" id="phno" placeholder="Mobile Number" />
             <input type="password" id="pin" placeholder="Choose a PIN (4-6 digits)" />
+            <input type="email" id="registerEmail" placeholder="Email (optional - needed for forgot-PIN)" />
             <button class="green" onclick="registerUser()">Register</button>
         </div>
 
-        <div class="card login-card">
+        <div class="card login-card" id="loginCard">
             <div class="card-title">
                 <div class="icon">🔐</div>
                 <h2>Login</h2>
@@ -333,6 +334,26 @@
             <input type="password" id="loginPin" placeholder="PIN" />
             <div id="loginError" class="field-error hidden"></div>
             <button class="purple" onclick="loginUser()">Login</button>
+            <p style="margin-top:12px; text-align:center;"><a href="#" onclick="showForgotPin(); return false;">Forgot PIN?</a></p>
+        </div>
+
+        <div class="card login-card" id="forgotPinSection" style="display:none">
+            <div class="card-title">
+                <div class="icon">🔑</div>
+                <h2>Forgot PIN</h2>
+                <span class="method">POST</span>
+            </div>
+            <p>Enter your mobile number and we'll email a 6-digit code to the address on file for that account
+               (set at registration, or via Update Email below once logged in).</p>
+            <input type="number" id="forgotPinPhno" placeholder="Mobile Number" />
+            <button class="purple" onclick="requestPinReset()">Send Reset Code</button>
+
+            <div id="resetPinStep" style="display:none; margin-top:16px;">
+                <input type="text" id="resetPinOtp" placeholder="6-digit code" maxlength="6" />
+                <input type="password" id="resetPinNewPin" placeholder="New PIN (4-6 digits)" />
+                <button class="purple" onclick="submitPinReset()">Reset PIN</button>
+            </div>
+            <p style="margin-top:12px; text-align:center;"><a href="#" onclick="backToLogin(); return false;">Back to Login</a></p>
         </div>
 
     </section>
@@ -380,6 +401,17 @@
             <p>Update your own mobile number to a new one. Requires login.</p>
             <input type="number" id="newPhno" placeholder="New Mobile Number" />
             <button onclick="updatePhno()">Update Mobile</button>
+        </div>
+
+        <div class="card">
+            <div class="card-title">
+                <div class="icon">📧</div>
+                <h2>Update Email</h2>
+                <span class="method">PUT</span>
+            </div>
+            <p>Set or change the email your forgot-PIN reset codes are sent to. Requires login.</p>
+            <input type="email" id="newEmail" placeholder="New Email" />
+            <button onclick="updateEmail()">Update Email</button>
         </div>
 
         <div class="card">
@@ -595,11 +627,13 @@
       const aadharNumber = document.getElementById("aadharNumber").value;
       const phno = document.getElementById("phno").value;
       const pin = document.getElementById("pin").value;
+      const email = document.getElementById("registerEmail").value;
 
       if (!firstName || !lastName || !aadharNumber || !phno || !pin)
         return showStatus("Please fill all required fields, including a PIN.", "error");
 
-      const user = { firstName, lastName, aadharNumber: Number(aadharNumber), phno: Number(phno), pin };
+      const user = { firstName, lastName, aadharNumber: Number(aadharNumber), phno: Number(phno), pin,
+                     email: email || null };
 
       const data = await apiCall(`${BASE_URL}/save`, jsonRequest("POST", user));
       document.getElementById("pin").value = "";
@@ -632,6 +666,63 @@
         errorBox.textContent = error.message;
         errorBox.classList.remove("hidden");
       }
+    }
+
+    function showForgotPin() {
+      document.getElementById("registerCard").style.display = "none";
+      document.getElementById("loginCard").style.display = "none";
+      document.getElementById("forgotPinSection").style.display = "block";
+      document.getElementById("resetPinStep").style.display = "none";
+      document.getElementById("forgotPinPhno").value = document.getElementById("loginPhno").value || "";
+    }
+
+    function backToLogin() {
+      document.getElementById("forgotPinSection").style.display = "none";
+      document.getElementById("registerCard").style.display = "block";
+      document.getElementById("loginCard").style.display = "block";
+    }
+
+    async function requestPinReset() {
+      const phno = document.getElementById("forgotPinPhno").value;
+      if (!phno) return showStatus("Please enter a mobile number.", "error");
+
+      try {
+        await apiCall(`${BASE_URL}/forgotpin/request`, jsonRequest("POST", { phno: Number(phno) }), { showErrorTab: false });
+        document.getElementById("resetPinStep").style.display = "block";
+        // Always the same message regardless of whether the account/email actually exists - see
+        // PinResetService.requestReset for why.
+        showStatus("If that account has an email on file, a reset code has been sent to it.", "success");
+      } catch (error) {
+        // apiCall already showed the reason in the toast
+      }
+    }
+
+    async function submitPinReset() {
+      const phno = document.getElementById("forgotPinPhno").value;
+      const otp = document.getElementById("resetPinOtp").value;
+      const newPin = document.getElementById("resetPinNewPin").value;
+      if (!phno || !otp || !newPin) return showStatus("Please enter the code and a new PIN.", "error");
+
+      try {
+        await apiCall(`${BASE_URL}/forgotpin/reset`, jsonRequest("POST", { phno: Number(phno), otp, newPin }), { showErrorTab: false });
+        document.getElementById("resetPinOtp").value = "";
+        document.getElementById("resetPinNewPin").value = "";
+        showStatus("PIN reset. You can now log in with your new PIN.", "success");
+        backToLogin();
+      } catch (error) {
+        // apiCall already showed the reason in the toast
+      }
+    }
+
+    async function updateEmail() {
+      if (!requireLogin()) return;
+      const email = document.getElementById("newEmail").value;
+      if (!email) return showStatus("Please enter the new email.", "error");
+
+      const data = await apiCall(`${BASE_URL}/update-email`, jsonRequest("PUT", { email }));
+      document.getElementById("newEmail").value = "";
+      showStatus("Email updated successfully. Result opened in new tab.", "success");
+      openResultTab("Update Email", data);
     }
 
     async function logoutUser() {

@@ -189,6 +189,7 @@ public class BankService {
         user.setLastName(request.lastName());
         user.setAadharNumber(request.aadharNumber());
         user.setPhno(request.phno());
+        user.setEmail(request.email());
         user.setBalance(BigDecimal.valueOf(0, 2));
 
         requireValidPhone(user.getPhno());
@@ -429,6 +430,20 @@ public class BankService {
         sessionService.invalidateAllFor(phno);
         return saved;
     }
+    // Self-service: sets or replaces the email the forgot-PIN flow sends codes to. No re-verification step
+    // (e.g. click a confirmation link) - same trust level as update-phone, which also takes effect immediately.
+    @Transactional
+    public Bank updateEmail(long phno, String email)
+    {
+        Bank user = userRepository.findByphno(phno);
+        if (user == null)
+        {
+            throw new UserNotFoundException("User not found");
+        }
+        user.setEmail(email);
+        return userRepository.save(user);
+    }
+
     @Transactional
     public void deleteByPhno(long phno)
     {

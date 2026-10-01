@@ -5,10 +5,13 @@ import com.example.bankapplication.dto.AmountRequest;
 import com.example.bankapplication.dto.BankDto;
 import com.example.bankapplication.dto.LoginRequest;
 import com.example.bankapplication.dto.LoginResponse;
+import com.example.bankapplication.dto.ForgotPinRequest;
 import com.example.bankapplication.dto.PageResponse;
 import com.example.bankapplication.dto.RegisterRequest;
+import com.example.bankapplication.dto.ResetPinRequest;
 import com.example.bankapplication.dto.SetPinRequest;
 import com.example.bankapplication.dto.TransferRequest;
+import com.example.bankapplication.dto.UpdateEmailRequest;
 import com.example.bankapplication.dto.UpdatePhoneRequest;
 import com.example.bankapplication.entity.Bank;
 import com.example.bankapplication.entity.BankTransaction;
@@ -16,6 +19,7 @@ import com.example.bankapplication.exception.DepositException;
 import com.example.bankapplication.exception.UserNotFoundException;
 import com.example.bankapplication.exception.WithdrawException;
 import com.example.bankapplication.service.BankService;
+import com.example.bankapplication.service.PinResetService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -41,6 +45,8 @@ import java.util.List;
 public class BankController {
     @Autowired
     private BankService bankService;
+    @Autowired
+    private PinResetService pinResetService;
 
     // ---------- public ----------
 
@@ -52,6 +58,20 @@ public class BankController {
     @PostMapping("/save")
     public Bank save(@Valid @RequestBody RegisterRequest request) {
         return bankService.register(request);
+    }
+
+    // Always 204 regardless of whether the phone number has an account or that account has an email on file -
+    // see PinResetService.requestReset for why (same enumeration reasoning as /login's generic error message).
+    @PostMapping("/forgotpin/request")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void forgotPinRequest(@Valid @RequestBody ForgotPinRequest request) {
+        pinResetService.requestReset(request.phno());
+    }
+
+    @PostMapping("/forgotpin/reset")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void forgotPinReset(@Valid @RequestBody ResetPinRequest request) {
+        pinResetService.resetPin(request.phno(), request.otp(), request.newPin());
     }
 
     // ---------- self-service ----------
@@ -90,6 +110,12 @@ public class BankController {
     public Bank updatePhone(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
                             @RequestBody UpdatePhoneRequest request) {
         return bankService.updatePhno(phno, request.newPhno());
+    }
+
+    @PutMapping("/update-email")
+    public Bank updateEmail(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
+                            @Valid @RequestBody UpdateEmailRequest request) {
+        return bankService.updateEmail(phno, request.email());
     }
 
     @GetMapping("/my-transactions")

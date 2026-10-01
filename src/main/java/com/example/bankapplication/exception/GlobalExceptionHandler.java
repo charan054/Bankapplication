@@ -28,6 +28,10 @@ public class GlobalExceptionHandler {
     public ResponseEntity<String> handlePinNotSet(PinNotSetException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ex.getMessage());
     }
+    @ExceptionHandler(InvalidOtpException.class)
+    public ResponseEntity<String> handleInvalidOtp(InvalidOtpException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ex.getMessage());
+    }
     @ExceptionHandler(AccountLockedException.class)
     public ResponseEntity<String> handleAccountLocked(AccountLockedException ex) {
         return ResponseEntity.status(HttpStatus.LOCKED).body(ex.getMessage());

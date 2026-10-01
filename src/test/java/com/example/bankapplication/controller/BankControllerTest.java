@@ -11,6 +11,7 @@ import com.example.bankapplication.exception.UnauthorizedException;
 import com.example.bankapplication.exception.UserExistException;
 import com.example.bankapplication.exception.UserNotFoundException;
 import com.example.bankapplication.service.BankService;
+import com.example.bankapplication.service.PinResetService;
 import com.example.bankapplication.service.SessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,6 +71,8 @@ class BankControllerTest {
     private BankService bankService;
     @MockitoBean
     private SessionService sessionService;
+    @MockitoBean
+    private PinResetService pinResetService;
 
     @BeforeEach
     void loginTheCaller() {

@@ -18,6 +18,7 @@ import java.time.Instant;
         "lastName",
         "aadharnumber",
         "phno",
+        "email",
         "balance"
 })
 public class Bank {
@@ -32,6 +33,9 @@ public class Bank {
     private long aadharNumber;
     @Column(unique = true)
     private long phno;
+    // Optional - null until the customer (or an admin) sets one. Needed to send a forgot-PIN reset code;
+    // an account with no email on file simply can't use that self-service flow yet.
+    private String email;
     @Column(precision = 19, scale = 2)
     private BigDecimal balance;
     // BCrypt hash of the customer's PIN. Null on accounts created before login existed, or reset by an admin;
