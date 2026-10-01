@@ -829,6 +829,28 @@ class BankServiceTest {
         verifyNoInteractions(userRepository);
     }
 
+    // ---------- update email ----------
+
+    @Test
+    void updateEmail_success_setsEmail() {
+        Bank user = bank(1000000000L, 9876543210L, 123456789012L, 0);
+        when(userRepository.findByphno(9876543210L)).thenReturn(user);
+        when(userRepository.save(user)).thenReturn(user);
+
+        Bank updated = bankService.updateEmail(9876543210L, "new@example.com");
+
+        assertEquals("new@example.com", updated.getEmail());
+    }
+
+    @Test
+    void updateEmail_unknownPhoneNumber_throwsUserNotFound() {
+        when(userRepository.findByphno(9876543210L)).thenReturn(null);
+
+        assertThrows(UserNotFoundException.class, () -> bankService.updateEmail(9876543210L, "new@example.com"));
+
+        verify(userRepository, never()).save(any());
+    }
+
     // ---------- delete ----------
 
     @Test

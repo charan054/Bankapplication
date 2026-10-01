@@ -948,6 +948,42 @@ class BankControllerTest {
         verifyNoInteractions(bankService);
     }
 
+    // ---------- PUT /bank/admin/set-email ----------
+
+    @Test
+    void setEmail_success() throws Exception {
+        Bank updated = bankWithBalance(0);
+        updated.setEmail("new@example.com");
+        when(bankService.updateEmail(PHNO, "new@example.com")).thenReturn(updated);
+
+        mockMvc.perform(asAdmin(put("/bank/admin/set-email")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":9876543210,\"email\":\"new@example.com\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("new@example.com"));
+
+        verify(bankService).updateEmail(PHNO, "new@example.com");
+    }
+
+    @Test
+    void setEmail_unknownUser_returns404() throws Exception {
+        when(bankService.updateEmail(PHNO, "new@example.com")).thenThrow(new UserNotFoundException("User not found"));
+
+        mockMvc.perform(asAdmin(put("/bank/admin/set-email")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":9876543210,\"email\":\"new@example.com\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().string("User not found"));
+    }
+
+    @Test
+    void setEmail_badEmailFormat_returns400() throws Exception {
+        mockMvc.perform(asAdmin(put("/bank/admin/set-email")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":9876543210,\"email\":\"not-an-email\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("Email must be a valid address"));
+
+        verifyNoInteractions(bankService);
+    }
+
     // ---------- POST /bank/transfer ----------
 
     private static final String VALID_TRANSFER_JSON =
