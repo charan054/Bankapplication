@@ -137,7 +137,7 @@ class BankServiceTest {
     }
 
     private RegisterRequest registerRequest(long phno, long aadhar) {
-        return new RegisterRequest("Charan", "Kumar", aadhar, phno, "1234");
+        return new RegisterRequest("Charan", "Kumar", aadhar, phno, "1234", null);
     }
 
     // ---------- register(): account creation ----------

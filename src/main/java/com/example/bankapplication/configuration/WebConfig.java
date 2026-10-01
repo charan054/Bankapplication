@@ -23,6 +23,10 @@ public class WebConfig implements WebMvcConfigurer {
     public static final int DEFAULT_MAX_MONEY_ATTEMPTS_PER_ACCOUNT = 20;
     static final Duration LOGIN_RATE_WINDOW = Duration.ofMinutes(1);
     static final Duration MONEY_RATE_WINDOW = Duration.ofMinutes(1);
+    // A forgot-PIN request sends an email - without a limit, someone could script unlimited emails to any
+    // account (or just hammer SMTP) the same way login's per-address limit stops unlimited PIN guesses.
+    public static final int DEFAULT_MAX_FORGOT_PIN_ATTEMPTS_PER_ADDRESS = 5;
+    static final Duration FORGOT_PIN_RATE_WINDOW = Duration.ofMinutes(1);
 
     private final SessionService sessions;
     private final String adminApiKey;
@@ -30,6 +34,7 @@ public class WebConfig implements WebMvcConfigurer {
     private final Clock clock;
     private final int maxLoginAttemptsPerAddress;
     private final int maxMoneyAttemptsPerAccount;
+    private final int maxForgotPinAttemptsPerAddress;
 
     public WebConfig(SessionService sessions,
                      @Value("${bank.admin.api-key}") String adminApiKey,
@@ -38,13 +43,16 @@ public class WebConfig implements WebMvcConfigurer {
                      @Value("${bank.login.rate-limit.max-attempts:" + DEFAULT_MAX_LOGIN_ATTEMPTS_PER_ADDRESS + "}")
                      int maxLoginAttemptsPerAddress,
                      @Value("${bank.money.rate-limit.max-attempts:" + DEFAULT_MAX_MONEY_ATTEMPTS_PER_ACCOUNT + "}")
-                     int maxMoneyAttemptsPerAccount) {
+                     int maxMoneyAttemptsPerAccount,
+                     @Value("${bank.forgot-pin.rate-limit.max-attempts:" + DEFAULT_MAX_FORGOT_PIN_ATTEMPTS_PER_ADDRESS + "}")
+                     int maxForgotPinAttemptsPerAddress) {
         this.sessions = sessions;
         this.adminApiKey = adminApiKey;
         this.serviceApiKey = serviceApiKey;
         this.clock = clock;
         this.maxLoginAttemptsPerAddress = maxLoginAttemptsPerAddress;
         this.maxMoneyAttemptsPerAccount = maxMoneyAttemptsPerAccount;
+        this.maxForgotPinAttemptsPerAddress = maxForgotPinAttemptsPerAddress;
     }
 
     @Override
@@ -56,6 +64,14 @@ public class WebConfig implements WebMvcConfigurer {
                         "Too many attempts from this address. Please wait a minute and try again."))
                 .addPathPatterns("/bank/login");
 
+        // Public: POST /bank/forgotpin/request, /bank/forgotpin/reset. Request is rate-limited per address
+        // (it sends an email); reset has its own per-code attempt limit instead (see PinResetService).
+        registry.addInterceptor(new RateLimitInterceptor(
+                        new RateLimiter(maxForgotPinAttemptsPerAddress, FORGOT_PIN_RATE_WINDOW, clock),
+                        HttpServletRequest::getRemoteAddr,
+                        "Too many attempts from this address. Please wait a minute and try again."))
+                .addPathPatterns("/bank/forgotpin/request");
+
         // Self-service: the caller acts only on their own account, identified by their own token.
         registry.addInterceptor(new CustomerAuthInterceptor(sessions))
                 .addPathPatterns(
@@ -64,6 +80,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/bank/deposit",
                         "/bank/withdraw",
                         "/bank/update-phone",
+                        "/bank/update-email",
                         "/bank/my-transactions");
 
         // Rate-limited per authenticated account (registered AFTER CustomerAuthInterceptor, so the phno attribute
