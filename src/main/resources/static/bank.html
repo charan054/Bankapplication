@@ -330,6 +330,7 @@
             <input type="number" id="aadharNumber" placeholder="Aadhar Number" />
             <input type="number" id="phno" placeholder="Mobile Number" />
             <input type="password" id="pin" placeholder="PIN (4-6 digits)" />
+            <input type="email" id="createUserEmail" placeholder="Email (optional - needed for forgot-PIN)" />
             <button class="green" onclick="saveUser()">Create User</button>
         </div>
 
@@ -463,6 +464,18 @@
             <input type="number" id="setPinPhno" placeholder="Phone number" />
             <input type="password" id="setPinValue" placeholder="New PIN (4-6 digits)" />
             <button onclick="setPin()">Set PIN</button>
+        </div>
+
+        <div class="card">
+            <div class="card-title">
+                <div class="icon">📧</div>
+                <h2>Set Email</h2>
+                <span class="method">PUT</span>
+            </div>
+            <p>Backfill an email for an account that predates forgot-PIN, or has none - after verifying who they are yourself. A customer with a PIN they remember should use Update Email in their own portal instead.</p>
+            <input type="number" id="setEmailPhno" placeholder="Phone number" />
+            <input type="email" id="setEmailValue" placeholder="Email address" />
+            <button onclick="setEmail()">Set Email</button>
         </div>
 
         <div class="card">
@@ -713,6 +726,7 @@
       const aadharNumber = document.getElementById("aadharNumber").value;
       const phno = document.getElementById("phno").value;
       const pin = document.getElementById("pin").value;
+      const email = document.getElementById("createUserEmail").value;
 
       if (!firstName || !lastName || !aadharNumber || !phno || !pin)
         return showStatus("Please fill all required fields, including a PIN.", "error");
@@ -722,7 +736,8 @@
         lastName: lastName,
         aadharNumber: Number(aadharNumber),
         phno: Number(phno),
-        pin: pin
+        pin: pin,
+        email: email || null
       };
 
       // Registration needs no admin key: fetch is called directly, not through apiCall's X-Admin-Key header.
@@ -817,6 +832,21 @@
       document.getElementById("setPinValue").value = "";
       showStatus("PIN updated successfully.", "success");
       openResultTab("Set / Reset PIN", { message: "PIN updated successfully", phoneNumber: phno });
+    }
+
+    async function setEmail() {
+      const phno = document.getElementById("setEmailPhno").value;
+      const email = document.getElementById("setEmailValue").value;
+
+      if (!phno || !email) return showStatus("Please enter phone number and email.", "error");
+
+      const data = await apiCall(`${BASE_URL}/admin/set-email`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phno: Number(phno), email: email })
+      });
+      showStatus("Email updated successfully. Result opened in new tab.", "success");
+      openResultTab("Set Email", data);
     }
 
     async function deleteUser() {

@@ -5,6 +5,7 @@ import com.example.bankapplication.dto.AmountRequest;
 import com.example.bankapplication.dto.BankDto;
 import com.example.bankapplication.dto.LoginRequest;
 import com.example.bankapplication.dto.LoginResponse;
+import com.example.bankapplication.dto.AdminSetEmailRequest;
 import com.example.bankapplication.dto.ForgotPinRequest;
 import com.example.bankapplication.dto.PageResponse;
 import com.example.bankapplication.dto.RegisterRequest;
@@ -218,6 +219,13 @@ public class BankController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void setPin(@Valid @RequestBody SetPinRequest request) {
         bankService.setPin(request.phno(), request.newPin());
+    }
+
+    // Backfills an email for an account that predates this feature, or has none - the one case the self-service
+    // PUT /update-email can't cover, since that requires already being logged in.
+    @PutMapping("/admin/set-email")
+    public Bank adminSetEmail(@Valid @RequestBody AdminSetEmailRequest request) {
+        return bankService.updateEmail(request.phno(), request.email());
     }
 
     // ---------- shared validation ----------
