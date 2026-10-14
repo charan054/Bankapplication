@@ -291,6 +291,19 @@
           .hero h1 { font-size: 34px; }
           .container { width: min(100% - 24px, 1220px); }
         }
+        /* ---- dark mode: follows the device setting; the page is light by default ---- */
+        @media (prefers-color-scheme: dark) {
+          :root { color-scheme: dark; --text: #e2e8f0; --muted: #94a3b8; --border: #27364d; --sky-light: #0c2a44; --white: #111c2e; --shadow: 0 18px 45px rgba(0, 0, 0, 0.45); }
+          body { background: linear-gradient(135deg, #0b1220, #0f1b30, #0b1a2e); }
+          .card, .admin-key-card { background: rgba(17, 28, 46, 0.97); border-color: #27364d; color: #e2e8f0; }
+          .card h2, .icon, .method { color: #7dd3fc; }
+          .admin-key-card strong { color: #e2e8f0; }
+          input, select, textarea { background: #0b1626; color: #e2e8f0; border-color: #27364d; }
+          input:focus, select:focus, textarea:focus { background: #0f1b30; }
+          input::placeholder { color: #64748b; }
+          .session-bar button { background: #111c2e; color: #e2e8f0; }
+          .status-panel { background: #111c2e; color: #bae6fd; }
+        }
     </style>
 </head>
 <body>
