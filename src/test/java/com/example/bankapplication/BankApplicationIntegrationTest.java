@@ -91,11 +91,14 @@ class BankApplicationIntegrationTest {
     private com.example.bankapplication.service.MailService mailService;
     @Autowired
     private com.example.bankapplication.repository.PendingSignupRepository pendingSignupRepository;
+    @Autowired
+    private com.example.bankapplication.repository.WithdrawalOtpRepository withdrawalOtpRepository;
 
     // The database lives for the whole test run, so start every test from an empty bank.
     @BeforeEach
     void emptyTheBank() {
         pendingSignupRepository.deleteAll();
+        withdrawalOtpRepository.deleteAll();
         bankSessionRepository.deleteAll();
         bankTransactionRepository.deleteAll();
         bankRepository.deleteAll();
@@ -163,6 +166,76 @@ class BankApplicationIntegrationTest {
 
         org.mockito.Mockito.verifyNoInteractions(mailService);
         org.junit.jupiter.api.Assertions.assertEquals(0, pendingSignupRepository.count());
+    }
+
+    // ---------- emailed code for large withdrawals ----------
+
+    private String loggedInRichCustomerWithEmail() throws Exception {
+        String json = """
+                {"firstName":"Charan","lastName":"Kumar","aadharNumber":%d,"phno":%d,"pin":"%s","email":"rich@example.com"}
+                """.formatted(AADHAR_A, PHNO_A, PIN);
+        mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isOk());
+        depositByPhno(PHNO_A, "50000");
+        return login(PHNO_A, PIN);
+    }
+
+    private String requestWithdrawalCode(String token, int amount) throws Exception {
+        org.mockito.Mockito.clearInvocations(mailService);
+        mockMvc.perform(as(token, post("/bank/withdraw/otp")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":" + amount + "}"))
+                .andExpect(status().isNoContent());
+        org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.Mockito.verify(mailService).send(org.mockito.ArgumentMatchers.eq("rich@example.com"),
+                org.mockito.ArgumentMatchers.anyString(), body.capture());
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\b[0-9]{6}\\b").matcher(body.getValue());
+        org.junit.jupiter.api.Assertions.assertTrue(m.find());
+        return m.group();
+    }
+
+    @Test
+    void largeWithdrawal_needsTheEmailedCode_andTheCodeWorksOnceForThatAmountOnly() throws Exception {
+        String token = loggedInRichCustomerWithEmail();
+
+        // no code: refused, nothing debited
+        mockMvc.perform(as(token, put("/bank/withdraw")).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":20000}"))
+                .andExpect(status().isForbidden());
+        balanceShouldBe(PHNO_A, 50000.0);
+
+        String code = requestWithdrawalCode(token, 20000);
+
+        // the code is for 20000 only
+        mockMvc.perform(as(token, put("/bank/withdraw")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":30000,\"otp\":\"" + code + "\"}"))
+                .andExpect(status().isBadRequest());
+        balanceShouldBe(PHNO_A, 50000.0);
+
+        // the right code for the right amount goes through...
+        mockMvc.perform(as(token, put("/bank/withdraw")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":20000,\"otp\":\"" + code + "\"}"))
+                .andExpect(status().isOk());
+        balanceShouldBe(PHNO_A, 30000.0);
+
+        // ...and cannot be replayed
+        mockMvc.perform(as(token, put("/bank/withdraw")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":20000,\"otp\":\"" + code + "\"}"))
+                .andExpect(status().isBadRequest());
+        balanceShouldBe(PHNO_A, 30000.0);
+    }
+
+    @Test
+    void smallWithdrawal_neverNeedsACode() throws Exception {
+        String token = loggedInRichCustomerWithEmail();
+
+        mockMvc.perform(as(token, put("/bank/withdraw")).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":9999}"))
+                .andExpect(status().isOk());
+        balanceShouldBe(PHNO_A, 40001.0);
+    }
+
+    @Test
+    void largeWithdrawalCodeRequest_needsALogin() throws Exception {
+        mockMvc.perform(post("/bank/withdraw/otp").contentType(MediaType.APPLICATION_JSON).content("{\"amount\":20000}"))
+                .andExpect(status().isUnauthorized());
     }
     // ---------- helpers ----------
 

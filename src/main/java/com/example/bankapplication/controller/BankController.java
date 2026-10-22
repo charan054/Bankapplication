@@ -24,6 +24,7 @@ import com.example.bankapplication.exception.WithdrawException;
 import com.example.bankapplication.service.BankService;
 import com.example.bankapplication.service.PinResetService;
 import com.example.bankapplication.service.SignupService;
+import com.example.bankapplication.service.WithdrawalOtpService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -53,6 +54,8 @@ public class BankController {
     private PinResetService pinResetService;
     @Autowired
     private SignupService signupService;
+    @Autowired
+    private WithdrawalOtpService withdrawalOtpService;
 
     // ---------- public ----------
 
@@ -125,7 +128,18 @@ public class BankController {
             throw new UserNotFoundException("User not found");
         }
         requireSufficientFunds(exis, amount);
+        // Large withdrawals need the code emailed by POST /bank/withdraw/otp (checked after the cheap checks above, so a
+        // withdrawal that would fail anyway does not use the code up).
+        withdrawalOtpService.requireValidCode(phno, amount, request.otp());
         return bankService.withdrawByphno(phno, amount);
+    }
+
+    // Emails a confirmation code for exactly this amount; the same amount must then be sent to PUT /withdraw with the code.
+    @PostMapping("/withdraw/otp")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void withdrawOtp(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
+                            @RequestBody AmountRequest request) {
+        withdrawalOtpService.request(phno, requirePositiveAmount(request.amount()));
     }
 
     @PutMapping("/update-phone")

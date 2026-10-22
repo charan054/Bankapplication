@@ -32,6 +32,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<String> handleInvalidOtp(InvalidOtpException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ex.getMessage());
     }
+    @ExceptionHandler(InvalidWithdrawalCodeException.class)
+    public ResponseEntity<String> handleInvalidWithdrawalCode(InvalidWithdrawalCodeException ex) {
+        return ResponseEntity.badRequest().body(ex.getMessage());
+    }
+    @ExceptionHandler(OtpRequiredException.class)
+    public ResponseEntity<String> handleOtpRequired(OtpRequiredException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ex.getMessage());
+    }
     @ExceptionHandler(AccountLockedException.class)
     public ResponseEntity<String> handleAccountLocked(AccountLockedException ex) {
         return ResponseEntity.status(HttpStatus.LOCKED).body(ex.getMessage());

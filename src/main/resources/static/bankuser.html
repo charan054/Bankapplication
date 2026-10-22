@@ -405,8 +405,12 @@
                 <h2>Withdraw</h2>
                 <span class="method">PUT</span>
             </div>
-            <p>Withdraw amount from your own account. Requires login.</p>
+            <p>Withdraw amount from your own account. Requires login. Large withdrawals (INR 10,000 or more) are confirmed with a code we email you.</p>
             <input type="number" id="withdrawAmount" placeholder="Withdraw Amount" />
+            <div id="withdrawCodeStep" class="hidden">
+                <p>We emailed a 6-digit code for this amount. Enter it and press Withdraw again (valid for 5 minutes).</p>
+                <input type="text" id="withdrawCode" inputmode="numeric" maxlength="6" placeholder="6-digit code" />
+            </div>
             <button class="orange" onclick="withdrawByPhno()">Withdraw</button>
         </div>
 
@@ -799,7 +803,25 @@
       const amount = document.getElementById("withdrawAmount").value;
       if (!amount) return showStatus("Please enter withdraw amount.", "error");
 
-      const data = await apiCall(`${BASE_URL}/withdraw`, jsonRequest("PUT", { amount: Number(amount) }));
+      const codeStep = document.getElementById("withdrawCodeStep");
+      const otp = document.getElementById("withdrawCode").value.trim();
+      const quiet = { showErrorTab: false, showErrorBanner: false };
+      let data;
+      try {
+        data = await apiCall(`${BASE_URL}/withdraw`,
+          jsonRequest("PUT", otp ? { amount: Number(amount), otp } : { amount: Number(amount) }), quiet);
+      } catch (error) {
+        if (/confirmation code is required/i.test(error.message)) {
+          // Big withdrawal with no code yet: email one for exactly this amount, then ask for it.
+          await apiCall(`${BASE_URL}/withdraw/otp`, jsonRequest("POST", { amount: Number(amount) }));
+          codeStep.classList.remove("hidden");
+          document.getElementById("withdrawCode").focus();
+          return showStatus("We emailed you a confirmation code. Enter it and press Withdraw again.", "success");
+        }
+        return showStatus("Request failed: " + error.message, "error");
+      }
+      document.getElementById("withdrawCode").value = "";
+      codeStep.classList.add("hidden");
       showStatus("Amount withdrawn successfully. Result opened in new tab.", "success");
       openResultTab("Withdraw", { message: data });
     }
