@@ -753,22 +753,16 @@
         email: email || null
       };
 
-      // Registration needs no admin key: fetch is called directly, not through apiCall's X-Admin-Key header.
+      // Direct account creation needs the admin key (customers sign up themselves, confirmed by an emailed code).
       let data;
       try {
-        showStatus("Processing request...", "");
-        const response = await fetch(`${BASE_URL}/save`, {
+        data = await apiCall(`${BASE_URL}/save`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(user)
         });
-        if (!response.ok) throw new Error(await response.text() || `HTTP Error: ${response.status}`);
-        const text = await response.text();
-        data = text ? JSON.parse(text) : null;
       } catch (error) {
-        showStatus("Request failed: " + error.message, "error");
-        openResultTab("Request Failed", { error: error.message });
-        return;
+        return; // apiCall already showed the error
       }
 
       document.getElementById("pin").value = "";

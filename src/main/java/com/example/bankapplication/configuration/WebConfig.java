@@ -57,7 +57,7 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        // Public: POST /bank/login, POST /bank/save. Login is rate-limited per address (see above).
+        // Public: POST /bank/login. Login is rate-limited per address (see above).
         registry.addInterceptor(new RateLimitInterceptor(
                         new RateLimiter(maxLoginAttemptsPerAddress, LOGIN_RATE_WINDOW, clock),
                         HttpServletRequest::getRemoteAddr,
@@ -71,6 +71,14 @@ public class WebConfig implements WebMvcConfigurer {
                         HttpServletRequest::getRemoteAddr,
                         "Too many attempts from this address. Please wait a minute and try again."))
                 .addPathPatterns("/bank/forgotpin/request");
+
+        // Public: POST /bank/register/request sends an email, so it is limited per address like forgot-PIN. (The code
+        // entered at /register/verify has its own per-code attempt limit, see SignupService.)
+        registry.addInterceptor(new RateLimitInterceptor(
+                        new RateLimiter(maxForgotPinAttemptsPerAddress, FORGOT_PIN_RATE_WINDOW, clock),
+                        HttpServletRequest::getRemoteAddr,
+                        "Too many attempts from this address. Please wait a minute and try again."))
+                .addPathPatterns("/bank/register/request");
 
         // Self-service: the caller acts only on their own account, identified by their own token.
         registry.addInterceptor(new CustomerAuthInterceptor(sessions))
@@ -93,9 +101,10 @@ public class WebConfig implements WebMvcConfigurer {
                 .addPathPatterns("/bank/deposit", "/bank/withdraw");
 
         // Trusted callers: act on any account, named by phone/account number in the request. Used by bank.html
-        // (admin key) and by PhonepayService's backend calls (service key).
+        // (admin key; also direct account creation, POST /bank/save) and by PhonepayService's backend calls (service key).
         registry.addInterceptor(new TrustedCallerInterceptor(adminApiKey, serviceApiKey))
                 .addPathPatterns(
+                        "/bank/save",
                         "/bank/all",
                         "/bank/getByphno/**",
                         "/bank/getByacno/**",

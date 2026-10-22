@@ -23,7 +23,8 @@ public class MailService {
         this.fromAddress = fromAddress;
     }
 
-    public void send(String to, String subject, String body) {
+    /** Returns whether the mail server accepted the message (false = it was only logged). */
+    public boolean send(String to, String subject, String body) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
             if (!fromAddress.isBlank()) {
@@ -33,8 +34,10 @@ public class MailService {
             message.setSubject(subject);
             message.setText(body);
             mailSender.send(message);
+            return true;
         } catch (MailException e) {
             log.error("Failed to send email to {}: {}", to, e.getMessage());
+            return false;
         }
     }
 }

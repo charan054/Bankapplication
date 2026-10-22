@@ -12,6 +12,8 @@ import com.example.bankapplication.exception.UserExistException;
 import com.example.bankapplication.exception.UserNotFoundException;
 import com.example.bankapplication.service.BankService;
 import com.example.bankapplication.service.PinResetService;
+import com.example.bankapplication.service.SignupService;
+import com.example.bankapplication.exception.InvalidOtpException;
 import com.example.bankapplication.service.SessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,6 +75,8 @@ class BankControllerTest {
     private SessionService sessionService;
     @MockitoBean
     private PinResetService pinResetService;
+    @MockitoBean
+    private SignupService signupService;
 
     @BeforeEach
     void loginTheCaller() {
@@ -568,17 +572,85 @@ class BankControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
-    // ---------- POST /bank/save (public) ----------
+
+    // ---------- POST /bank/register/request + /bank/register/verify (public, emailed code) ----------
+
+    private static final String VALID_SIGNUP_JSON = """
+            {"firstName":"Charan","lastName":"Kumar","aadharNumber":123456789012,"phno":9876543210,"pin":"1234","email":"charan@example.com"}
+            """;
+
+    @Test
+    void registerRequest_needsNoAuthenticationAndReturns204() throws Exception {
+        mockMvc.perform(post("/bank/register/request").contentType(MediaType.APPLICATION_JSON).content(VALID_SIGNUP_JSON))
+                .andExpect(status().isNoContent());
+
+        verify(signupService).requestSignup(any());
+        verifyNoInteractions(sessionService);
+    }
+
+    @Test
+    void registerRequest_withoutAnEmail_returns400() throws Exception {
+        mockMvc.perform(post("/bank/register/request").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"firstName\":\"Charan\",\"lastName\":\"Kumar\",\"aadharNumber\":123456789012,\"phno\":9876543210,\"pin\":\"1234\"}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(signupService);
+    }
+
+    @Test
+    void registerRequest_malformedEmail_returns400() throws Exception {
+        mockMvc.perform(post("/bank/register/request").contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_SIGNUP_JSON.replace("charan@example.com", "not-an-email")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void registerVerify_returnsTheNewAccountWithoutItsPinHash() throws Exception {
+        when(signupService.verify(PHNO, "123456")).thenReturn(bankWithBalance(0));
+
+        mockMvc.perform(post("/bank/register/verify").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":9876543210,\"otp\":\"123456\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.acno").value(ACNO))
+                .andExpect(jsonPath("$.pinHash").doesNotExist());
+    }
+
+    @Test
+    void registerVerify_badCode_isRejected() throws Exception {
+        when(signupService.verify(PHNO, "000000")).thenThrow(new InvalidOtpException("Invalid or expired code."));
+
+        mockMvc.perform(post("/bank/register/verify").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":9876543210,\"otp\":\"000000\"}"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    void registerVerify_codeThatIsNotSixDigits_returns400() throws Exception {
+        mockMvc.perform(post("/bank/register/verify").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":9876543210,\"otp\":\"12\"}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(signupService);
+    }
+    // ---------- POST /bank/save (admin/service key; customers sign up through /register/*) ----------
 
     private static final String VALID_REGISTER_JSON = """
             {"firstName":"Charan","lastName":"Kumar","aadharNumber":123456789012,"phno":9876543210,"pin":"1234"}
             """;
 
     @Test
-    void save_needsNoAuthentication() throws Exception {
+    void save_withoutAnAdminOrServiceKey_returns401() throws Exception {
+        mockMvc.perform(post("/bank/save").contentType(MediaType.APPLICATION_JSON).content(VALID_REGISTER_JSON))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(bankService);
+    }
+
+    @Test
+    void save_withTheAdminKey_createsTheAccountDirectly() throws Exception {
         when(bankService.register(any())).thenReturn(bankWithBalance(0));
 
-        mockMvc.perform(post("/bank/save").contentType(MediaType.APPLICATION_JSON).content(VALID_REGISTER_JSON))
+        mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON).content(VALID_REGISTER_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.acno").value(ACNO))
                 .andExpect(jsonPath("$.firstName").value("Charan"))
@@ -589,7 +661,7 @@ class BankControllerTest {
 
     @Test
     void save_missingPin_returns400() throws Exception {
-        mockMvc.perform(post("/bank/save").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"firstName\":\"Charan\",\"lastName\":\"Kumar\",\"aadharNumber\":123456789012,\"phno\":9876543210}"))
                 .andExpect(status().isBadRequest());
     }
@@ -599,7 +671,7 @@ class BankControllerTest {
     void save_pinWrongLength_returns400(String pin) throws Exception {
         String json = "{\"firstName\":\"Charan\",\"lastName\":\"Kumar\",\"aadharNumber\":123456789012,\"phno\":9876543210,\"pin\":\"" + pin + "\"}";
 
-        mockMvc.perform(post("/bank/save").contentType(MediaType.APPLICATION_JSON).content(json))
+        mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON).content(json))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("PIN must be 4 to 6 digits"));
     }
@@ -608,7 +680,7 @@ class BankControllerTest {
     void save_invalidMobile_returns400WithMessage() throws Exception {
         when(bankService.register(any())).thenThrow(new MobileNumberException("Invalid mobile number"));
 
-        mockMvc.perform(post("/bank/save").contentType(MediaType.APPLICATION_JSON).content(VALID_REGISTER_JSON))
+        mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON).content(VALID_REGISTER_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("Invalid mobile number"));
     }
@@ -617,7 +689,7 @@ class BankControllerTest {
     void save_duplicateUser_returns400WithMessage() throws Exception {
         when(bankService.register(any())).thenThrow(new UserExistException("mobile number already exist"));
 
-        mockMvc.perform(post("/bank/save").contentType(MediaType.APPLICATION_JSON).content(VALID_REGISTER_JSON))
+        mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON).content(VALID_REGISTER_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("mobile number already exist"));
     }
@@ -630,7 +702,7 @@ class BankControllerTest {
     void save_databaseUniqueConstraintViolation_returns409Retry() throws Exception {
         when(bankService.register(any())).thenThrow(new DataIntegrityViolationException("Duplicate entry"));
 
-        mockMvc.perform(post("/bank/save").contentType(MediaType.APPLICATION_JSON).content(VALID_REGISTER_JSON))
+        mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON).content(VALID_REGISTER_JSON))
                 .andExpect(status().isConflict())
                 .andExpect(content().string(RETRY_MESSAGE));
     }
@@ -658,7 +730,7 @@ class BankControllerTest {
 
     @Test
     void save_malformedJson_returns400() throws Exception {
-        mockMvc.perform(post("/bank/save").contentType(MediaType.APPLICATION_JSON).content("{not json"))
+        mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON).content("{not json"))
                 .andExpect(status().isBadRequest());
     }
 

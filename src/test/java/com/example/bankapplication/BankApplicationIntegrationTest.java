@@ -87,15 +87,83 @@ class BankApplicationIntegrationTest {
 
     @MockitoBean
     private BankKafkaProducer bankKafkaProducer;
+    @MockitoBean
+    private com.example.bankapplication.service.MailService mailService;
+    @Autowired
+    private com.example.bankapplication.repository.PendingSignupRepository pendingSignupRepository;
 
     // The database lives for the whole test run, so start every test from an empty bank.
     @BeforeEach
     void emptyTheBank() {
+        pendingSignupRepository.deleteAll();
         bankSessionRepository.deleteAll();
         bankTransactionRepository.deleteAll();
         bankRepository.deleteAll();
     }
 
+
+    // ---------- self-signup confirmed by an emailed code ----------
+
+    private static final String SIGNUP_JSON = """
+            {"firstName":"Charan","lastName":"Kumar","aadharNumber":333344445555,"phno":9123456789,"pin":"4321","email":"new@example.com"}
+            """;
+
+    private String requestSignupAndReadTheEmailedCode() throws Exception {
+        mockMvc.perform(post("/bank/register/request").contentType(MediaType.APPLICATION_JSON).content(SIGNUP_JSON))
+                .andExpect(status().isNoContent());
+        org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.Mockito.verify(mailService).send(org.mockito.ArgumentMatchers.eq("new@example.com"),
+                org.mockito.ArgumentMatchers.anyString(), body.capture());
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\b[0-9]{6}\\b").matcher(body.getValue());
+        org.junit.jupiter.api.Assertions.assertTrue(m.find());
+        return m.group();
+    }
+
+    @Test
+    void signup_createsNoAccountUntilTheEmailedCodeIsEntered_thenTheCustomerCanLogIn() throws Exception {
+        String code = requestSignupAndReadTheEmailedCode();
+
+        // not an account yet
+        mockMvc.perform(post("/bank/login").contentType(MediaType.APPLICATION_JSON).content("{\"phno\":9123456789,\"pin\":\"4321\"}"))
+                .andExpect(status().is4xxClientError());
+        org.junit.jupiter.api.Assertions.assertEquals(0, bankRepository.count());
+
+        mockMvc.perform(post("/bank/register/verify").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":9123456789,\"otp\":\"" + code + "\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/bank/login").contentType(MediaType.APPLICATION_JSON).content("{\"phno\":9123456789,\"pin\":\"4321\"}"))
+                .andExpect(status().isOk());
+        org.junit.jupiter.api.Assertions.assertEquals(1, bankRepository.count());
+        org.junit.jupiter.api.Assertions.assertEquals(0, pendingSignupRepository.count());
+    }
+
+    @Test
+    void signup_aWrongCodeCreatesNothingAndTheRightCodeStillWorksAfterwards() throws Exception {
+        String code = requestSignupAndReadTheEmailedCode();
+        String wrong = code.equals("000000") ? "111111" : "000000";
+
+        mockMvc.perform(post("/bank/register/verify").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":9123456789,\"otp\":\"" + wrong + "\"}"))
+                .andExpect(status().is4xxClientError());
+        org.junit.jupiter.api.Assertions.assertEquals(0, bankRepository.count());
+        org.junit.jupiter.api.Assertions.assertEquals(1, pendingSignupRepository.findAll().get(0).getAttempts());
+
+        mockMvc.perform(post("/bank/register/verify").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":9123456789,\"otp\":\"" + code + "\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void signup_aTakenPhoneNumberIsRefusedBeforeAnyCodeIsEmailed() throws Exception {
+        createUser(9123456789L, 111122223333L);
+
+        mockMvc.perform(post("/bank/register/request").contentType(MediaType.APPLICATION_JSON).content(SIGNUP_JSON))
+                .andExpect(status().is4xxClientError());
+
+        org.mockito.Mockito.verifyNoInteractions(mailService);
+        org.junit.jupiter.api.Assertions.assertEquals(0, pendingSignupRepository.count());
+    }
     // ---------- helpers ----------
 
     private MockHttpServletRequestBuilder asAdmin(MockHttpServletRequestBuilder request) {
@@ -106,7 +174,7 @@ class BankApplicationIntegrationTest {
         String json = """
                 {"firstName":"Charan","lastName":"Kumar","aadharNumber":%d,"phno":%d,"pin":"%s"}
                 """.formatted(aadhar, phno, PIN);
-        mockMvc.perform(post("/bank/save").contentType(MediaType.APPLICATION_JSON).content(json))
+        mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON).content(json))
                 .andExpect(status().isOk());
     }
 
@@ -189,7 +257,7 @@ class BankApplicationIntegrationTest {
         String duplicate = """
                 {"firstName":"Other","lastName":"Person","aadharNumber":%d,"phno":%d,"pin":"%s"}
                 """.formatted(AADHAR_B, PHNO_A, PIN);
-        mockMvc.perform(post("/bank/save").contentType(MediaType.APPLICATION_JSON).content(duplicate))
+        mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON).content(duplicate))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("mobile number already exist"));
 
@@ -201,7 +269,7 @@ class BankApplicationIntegrationTest {
         String bad = """
                 {"firstName":"A","lastName":"B","aadharNumber":%d,"phno":5876543210,"pin":"%s"}
                 """.formatted(AADHAR_A, PIN);
-        mockMvc.perform(post("/bank/save").contentType(MediaType.APPLICATION_JSON).content(bad))
+        mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON).content(bad))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("Invalid mobile number"));
 
@@ -210,7 +278,7 @@ class BankApplicationIntegrationTest {
 
     @Test
     void createUser_pinIsHashed_neverStoredOrReturnedInPlainText() throws Exception {
-        String response = mockMvc.perform(post("/bank/save").contentType(MediaType.APPLICATION_JSON)
+        String response = mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"firstName\":\"Charan\",\"lastName\":\"Kumar\",\"aadharNumber\":" + AADHAR_A
                                 + ",\"phno\":" + PHNO_A + ",\"pin\":\"" + PIN + "\"}"))
                 .andExpect(status().isOk())
