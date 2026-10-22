@@ -11,6 +11,8 @@ import com.example.bankapplication.dto.PageResponse;
 import com.example.bankapplication.dto.RegisterRequest;
 import com.example.bankapplication.dto.ResetPinRequest;
 import com.example.bankapplication.dto.SetPinRequest;
+import com.example.bankapplication.dto.SignupRequest;
+import com.example.bankapplication.dto.SignupVerifyRequest;
 import com.example.bankapplication.dto.TransferRequest;
 import com.example.bankapplication.dto.UpdateEmailRequest;
 import com.example.bankapplication.dto.UpdatePhoneRequest;
@@ -21,6 +23,7 @@ import com.example.bankapplication.exception.UserNotFoundException;
 import com.example.bankapplication.exception.WithdrawException;
 import com.example.bankapplication.service.BankService;
 import com.example.bankapplication.service.PinResetService;
+import com.example.bankapplication.service.SignupService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -34,7 +37,7 @@ import java.util.List;
 /**
  * Three tiers, enforced by the interceptors in configuration/WebConfig:
  * <ul>
- *   <li>public — /login, /save;</li>
+ *   <li>public — /login, /register/request + /register/verify (emailed-code signup), forgot-PIN;</li>
  *   <li>self-service (Authorization: Bearer &lt;customer token&gt;) — acts only on the caller's own account,
  *       whose phno comes from {@link CustomerAuthInterceptor#AUTHENTICATED_PHNO}, never from the request;</li>
  *   <li>trusted caller (X-Admin-Key or X-Service-Key) — acts on any account named by phno/acno in the request;
@@ -48,6 +51,8 @@ public class BankController {
     private BankService bankService;
     @Autowired
     private PinResetService pinResetService;
+    @Autowired
+    private SignupService signupService;
 
     // ---------- public ----------
 
@@ -56,9 +61,25 @@ public class BankController {
         return bankService.login(request.phno(), request.pin());
     }
 
+    // Direct account creation for the admin console (admin key) and trusted callers (service key): no emailed code.
+    // Customers sign up themselves through /register/request + /register/verify below.
     @PostMapping("/save")
     public Bank save(@Valid @RequestBody RegisterRequest request) {
         return bankService.register(request);
+    }
+
+    // Self-signup, step 1: validates the details and emails a 6-digit code. No account exists yet. 204 on success;
+    // a taken phone number / Aadhar is reported here (same as the old single-step signup did).
+    @PostMapping("/register/request")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void registerRequest(@Valid @RequestBody SignupRequest request) {
+        signupService.requestSignup(request);
+    }
+
+    // Self-signup, step 2: the emailed code creates the account.
+    @PostMapping("/register/verify")
+    public Bank registerVerify(@Valid @RequestBody SignupVerifyRequest request) {
+        return signupService.verify(request.phno(), request.otp());
     }
 
     // Always 204 regardless of whether the phone number has an account or that account has an email on file -

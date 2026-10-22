@@ -331,8 +331,14 @@
             <input type="number" id="aadharNumber" placeholder="Aadhar Number" />
             <input type="number" id="phno" placeholder="Mobile Number" />
             <input type="password" id="pin" placeholder="Choose a PIN (4-6 digits)" />
-            <input type="email" id="registerEmail" placeholder="Email (optional - needed for forgot-PIN)" />
-            <button class="green" onclick="registerUser()">Register</button>
+            <input type="email" id="registerEmail" placeholder="Email (we send a confirmation code here)" />
+            <button class="green" id="registerButton" onclick="registerUser()">Send confirmation code</button>
+            <div id="signupCodeStep" class="hidden">
+                <p>We emailed a 6-digit code to <b id="signupEmailShown"></b>. Enter it to create your account (valid for 10 minutes).</p>
+                <input type="text" id="signupCode" inputmode="numeric" maxlength="6" placeholder="6-digit code" />
+                <button class="green" onclick="confirmSignup()">Confirm &amp; create account</button>
+                <button onclick="cancelSignup()">Start over</button>
+            </div>
         </div>
 
         <div class="card login-card" id="loginCard">
@@ -641,16 +647,41 @@
       const pin = document.getElementById("pin").value;
       const email = document.getElementById("registerEmail").value;
 
-      if (!firstName || !lastName || !aadharNumber || !phno || !pin)
-        return showStatus("Please fill all required fields, including a PIN.", "error");
+      if (!firstName || !lastName || !aadharNumber || !phno || !pin || !email)
+        return showStatus("Please fill all fields, including a PIN and the email the confirmation code is sent to.", "error");
 
-      const user = { firstName, lastName, aadharNumber: Number(aadharNumber), phno: Number(phno), pin,
-                     email: email || null };
+      const user = { firstName, lastName, aadharNumber: Number(aadharNumber), phno: Number(phno), pin, email };
 
-      const data = await apiCall(`${BASE_URL}/save`, jsonRequest("POST", user));
+      // Step 1: validate the details and email a code. The account is created only once the code is entered.
+      await apiCall(`${BASE_URL}/register/request`, jsonRequest("POST", user));
+      pendingSignupPhno = Number(phno);
+      document.getElementById("signupEmailShown").textContent = email;
+      document.getElementById("signupCodeStep").classList.remove("hidden");
+      document.getElementById("registerButton").textContent = "Resend code";
+      document.getElementById("signupCode").focus();
+      showStatus("Confirmation code sent. Check your email.", "success");
+    }
+
+    let pendingSignupPhno = null;
+
+    // Step 2: the emailed code creates the account.
+    async function confirmSignup() {
+      const otp = document.getElementById("signupCode").value.trim();
+      if (!pendingSignupPhno || !/^[0-9]{6}$/.test(otp))
+        return showStatus("Enter the 6-digit code from your email.", "error");
+
+      const data = await apiCall(`${BASE_URL}/register/verify`, jsonRequest("POST", { phno: pendingSignupPhno, otp }));
       document.getElementById("pin").value = "";
-      showStatus("Registered successfully. You can now log in. Result opened in new tab.", "success");
+      cancelSignup();
+      showStatus("Account created. You can now log in. Result opened in new tab.", "success");
       openResultTab("Register", data);
+    }
+
+    function cancelSignup() {
+      pendingSignupPhno = null;
+      document.getElementById("signupCode").value = "";
+      document.getElementById("signupCodeStep").classList.add("hidden");
+      document.getElementById("registerButton").textContent = "Send confirmation code";
     }
 
     async function loginUser() {

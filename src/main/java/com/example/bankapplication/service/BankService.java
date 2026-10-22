@@ -184,41 +184,49 @@ public class BankService {
     @Transactional
     public Bank register(RegisterRequest request)
     {
-        Bank user = new Bank();
-        user.setFirstName(request.firstName());
-        user.setLastName(request.lastName());
-        user.setAadharNumber(request.aadharNumber());
-        user.setPhno(request.phno());
-        user.setEmail(request.email());
-        user.setBalance(BigDecimal.valueOf(0, 2));
+        validateNewAccount(request.phno(), request.aadharNumber());
+        return createAccount(request.firstName(), request.lastName(), request.aadharNumber(), request.phno(),
+                request.email(), passwordEncoder.encode(request.pin()));
+    }
 
-        requireValidPhone(user.getPhno());
-        long aadharNumber= user.getAadharNumber();
+    /** The phone number / Aadhar checks every new account passes, whether created directly or confirmed by email OTP. */
+    public void validateNewAccount(long phno, long aadharNumber)
+    {
+        requireValidPhone(phno);
         String y=""+aadharNumber;
         if(y.length()!=12)
         {
             throw new MobileNumberException("Invalid AADHAR NUMBER");
         }
-        else
-        {
-            try {
-                long aa = Long.parseLong(y);
-            }
-            catch(NumberFormatException e) {
-                throw new MobileNumberException("Invalid AADHAR NUMBER");
-            }
-        }
-        if(userRepository.existsByPhno(user.getPhno()))
+        if(userRepository.existsByPhno(phno))
         {
             throw new UserExistException("mobile number already exist");
         }
-        if(userRepository.existsByAadharNumber(user.getAadharNumber()))
+        if(userRepository.existsByAadharNumber(aadharNumber))
         {
             throw new UserExistException("AADHAR NUMBER already exist");
         }
+    }
 
-        user.setPinHash(passwordEncoder.encode(request.pin()));
+    /** Hashes a PIN the same way account PINs are stored (used to park a PIN in a pending signup without keeping it in clear). */
+    public String encodePin(String pin)
+    {
+        return passwordEncoder.encode(pin);
+    }
 
+    /** Creates the account from an already-hashed PIN, re-checking uniqueness (it may have been taken since the OTP was sent). */
+    @Transactional
+    public Bank createAccount(String firstName, String lastName, long aadharNumber, long phno, String email, String pinHash)
+    {
+        validateNewAccount(phno, aadharNumber);
+        Bank user = new Bank();
+        user.setFirstName(firstName);
+        user.setLastName(lastName);
+        user.setAadharNumber(aadharNumber);
+        user.setPhno(phno);
+        user.setEmail(email);
+        user.setBalance(BigDecimal.valueOf(0, 2));
+        user.setPinHash(pinHash);
         Long maxAcno = userRepository.findMaxAcno();
         user.setAcno(maxAcno == null ? 1000000000 : maxAcno + 1);
         return userRepository.save(user);
