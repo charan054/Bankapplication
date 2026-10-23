@@ -19,4 +19,7 @@ public interface BankSessionRepository extends JpaRepository<BankSession, Long> 
     // housekeeping: forget EVERY expired session, not just one customer's - run periodically (see SessionService)
     // so a session nobody ever logs into again isn't kept forever.
     long deleteByExpiresAtBefore(Instant cutoff);
+    // a customer's live logins, newest first
+    java.util.List<BankSession> findByPhnoAndExpiresAtAfterOrderByCreatedAtDesc(long phno, Instant now);
+    Optional<BankSession> findByIdAndPhno(long id, long phno);
 }

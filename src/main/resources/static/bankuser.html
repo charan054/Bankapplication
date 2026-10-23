@@ -438,6 +438,18 @@
 
         <div class="card">
             <div class="card-title">
+                <div class="icon">🔐</div>
+                <h2>Active Logins</h2>
+                <span class="method">GET</span>
+            </div>
+            <p>Where your account is signed in right now. End any you don't recognise, or sign out everywhere. Requires login.</p>
+            <button onclick="loadSessions()">Show my logins</button>
+            <div id="sessionList"></div>
+            <button class="orange" onclick="logoutEverywhere()">Sign out everywhere else</button>
+        </div>
+
+        <div class="card">
+            <div class="card-title">
                 <div class="icon">📜</div>
                 <h2>Statement</h2>
                 <span class="method">GET</span>
@@ -824,6 +836,34 @@
       codeStep.classList.add("hidden");
       showStatus("Amount withdrawn successfully. Result opened in new tab.", "success");
       openResultTab("Withdraw", { message: data });
+    }
+
+    async function loadSessions() {
+      if (!requireLogin()) return;
+      const rows = await apiCall(`${BASE_URL}/sessions`, { method: "GET" }, { showErrorTab: false });
+      const box = document.getElementById("sessionList");
+      box.innerHTML = rows.map(s => `
+        <div class="session-row">
+          <b>${escapeHtml(s.device)}</b>${s.current ? " (this device)" : ""}
+          <br><small>${s.address ? escapeHtml(s.address) + " &middot; " : ""}signed in ${escapeHtml(new Date(s.createdAt).toLocaleString())}</small>
+          ${s.current ? "" : `<button class="orange" onclick="endSession(${s.id})">End this login</button>`}
+        </div>`).join("") || "<p>No active logins.</p>";
+      showStatus(`${rows.length} active login(s).`, "success");
+    }
+
+    async function endSession(id) {
+      if (!requireLogin()) return;
+      await apiCall(`${BASE_URL}/sessions/${id}`, { method: "DELETE" }, { showErrorTab: false });
+      showStatus("Login ended.", "success");
+      loadSessions();
+    }
+
+    async function logoutEverywhere() {
+      if (!requireLogin()) return;
+      if (!confirm("Sign out of every other device? This device stays signed in.")) return;
+      const r = await apiCall(`${BASE_URL}/logout-all?keepCurrent=true`, { method: "POST" }, { showErrorTab: false });
+      showStatus(`Signed out of ${r.ended} other login(s).`, "success");
+      loadSessions();
     }
 
     async function updatePhno() {

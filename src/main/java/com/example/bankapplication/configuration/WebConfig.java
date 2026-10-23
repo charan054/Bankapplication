@@ -87,6 +87,9 @@ public class WebConfig implements WebMvcConfigurer {
         registry.addInterceptor(new CustomerAuthInterceptor(sessions))
                 .addPathPatterns(
                         "/bank/logout",
+                        "/bank/logout-all",
+                        "/bank/sessions",
+                        "/bank/sessions/*",
                         "/bank/me",
                         "/bank/deposit",
                         "/bank/withdraw",
