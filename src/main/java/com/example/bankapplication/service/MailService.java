@@ -40,4 +40,25 @@ public class MailService {
             return false;
         }
     }
+
+    /** Same as send(), with one file attached. Returns whether the mail server accepted it. */
+    public boolean sendWithAttachment(String to, String subject, String body, String filename, byte[] content, String contentType) {
+        try {
+            jakarta.mail.internet.MimeMessage message = mailSender.createMimeMessage();
+            org.springframework.mail.javamail.MimeMessageHelper helper =
+                    new org.springframework.mail.javamail.MimeMessageHelper(message, true, "UTF-8");
+            if (!fromAddress.isBlank()) {
+                helper.setFrom(fromAddress);
+            }
+            helper.setTo(to);
+            helper.setSubject(subject);
+            helper.setText(body);
+            helper.addAttachment(filename, new org.springframework.core.io.ByteArrayResource(content), contentType);
+            mailSender.send(message);
+            return true;
+        } catch (MailException | jakarta.mail.MessagingException e) {
+            log.error("Failed to send email with attachment to {}: {}", to, e.getMessage());
+            return false;
+        }
+    }
 }

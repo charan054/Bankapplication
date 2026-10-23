@@ -26,6 +26,7 @@ import com.example.bankapplication.service.BankService;
 import com.example.bankapplication.service.PinResetService;
 import com.example.bankapplication.service.SignupService;
 import com.example.bankapplication.service.SessionService;
+import com.example.bankapplication.service.StatementEmailService;
 import com.example.bankapplication.service.DailyLimitService;
 import com.example.bankapplication.service.WithdrawalOtpService;
 import jakarta.validation.Valid;
@@ -59,6 +60,8 @@ public class BankController {
     private SignupService signupService;
     @Autowired
     private SessionService sessionService;
+    @Autowired
+    private StatementEmailService statementEmailService;
     @Autowired
     private DailyLimitService dailyLimitService;
     @org.springframework.beans.factory.annotation.Value("${bank.service.api-key}")
@@ -164,6 +167,20 @@ public class BankController {
     public DailyLimitService.LimitView changeLimit(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
                                                    @RequestBody com.example.bankapplication.dto.LimitRequest request) {
         return dailyLimitService.change(phno, request.dailyLimit());
+    }
+
+    // Emails the caller their statement for one month (YYYY-MM, default: last month) to the address on file.
+    @PostMapping("/statement/email")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void emailStatement(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
+                               @RequestParam(required = false) String month) {
+        java.time.YearMonth wanted;
+        try {
+            wanted = month == null || month.isBlank() ? java.time.YearMonth.now().minusMonths(1) : java.time.YearMonth.parse(month.trim());
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new com.example.bankapplication.exception.WithdrawException("The month must look like 2026-09.");
+        }
+        statementEmailService.sendOnRequest(phno, wanted);
     }
 
     @GetMapping("/me")
