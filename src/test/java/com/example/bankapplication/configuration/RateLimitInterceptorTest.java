@@ -50,4 +50,16 @@ class RateLimitInterceptorTest {
         assertTrue(interceptor.preHandle(request, response, new Object()));
         verifyNoInteractions(limiter);
     }
+
+    @Test
+    void anExemptRequest_isNeverCountedOrRefused() {
+        RateLimiter limiter = mock(RateLimiter.class);
+        when(request.getMethod()).thenReturn("POST");
+        when(request.getHeader("X-Service-Key")).thenReturn("trusted");
+        RateLimitInterceptor interceptor = new RateLimitInterceptor(limiter, HttpServletRequest::getRemoteAddr, "Too many requests",
+                r -> "trusted".equals(r.getHeader("X-Service-Key")));
+
+        assertTrue(interceptor.preHandle(request, response, new Object()));
+        verifyNoInteractions(limiter);
+    }
 }

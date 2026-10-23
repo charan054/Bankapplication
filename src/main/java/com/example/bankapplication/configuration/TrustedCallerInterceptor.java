@@ -42,7 +42,16 @@ public class TrustedCallerInterceptor implements HandlerInterceptor {
     // MessageDigest.isEqual compares every byte regardless of where the first mismatch is, unlike String.equals
     // (which returns as soon as it finds one). Without that, a caller who can measure response timing precisely
     // enough could recover the key one byte at a time instead of needing to guess it outright.
+    /** Constant-time check of a presented key against the expected service key (also used by the login endpoint). */
+    public static boolean isServiceKey(String provided, String expected) {
+        return matchesKey(provided, expected);
+    }
+
     private boolean matches(String provided, String expected) {
+        return matchesKey(provided, expected);
+    }
+
+    private static boolean matchesKey(String provided, String expected) {
         if (provided == null || provided.isEmpty()) {
             return false;
         }

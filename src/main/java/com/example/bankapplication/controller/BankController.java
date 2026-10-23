@@ -1,6 +1,7 @@
 package com.example.bankapplication.controller;
 
 import com.example.bankapplication.configuration.CustomerAuthInterceptor;
+import com.example.bankapplication.configuration.TrustedCallerInterceptor;
 import com.example.bankapplication.dto.AmountRequest;
 import com.example.bankapplication.dto.BankDto;
 import com.example.bankapplication.dto.LoginRequest;
@@ -54,13 +55,21 @@ public class BankController {
     private PinResetService pinResetService;
     @Autowired
     private SignupService signupService;
+    @org.springframework.beans.factory.annotation.Value("${bank.service.api-key}")
+    private String serviceApiKey;
     @Autowired
     private WithdrawalOtpService withdrawalOtpService;
 
     // ---------- public ----------
 
     @PostMapping("/login")
-    public LoginResponse login(@Valid @RequestBody LoginRequest request) {
+    public LoginResponse login(@Valid @RequestBody LoginRequest request,
+                               @RequestHeader(value = "X-Service-Key", required = false) String serviceKey) {
+        // PhonepayService logs customers in here with the service key on every PhonePe login: same checks, but no
+        // "new login" email (see BankService.loginAsTrustedService) and no per-address rate limit (see WebConfig).
+        if (TrustedCallerInterceptor.isServiceKey(serviceKey, serviceApiKey)) {
+            return bankService.loginAsTrustedService(request.phno(), request.pin());
+        }
         return bankService.login(request.phno(), request.pin());
     }
 

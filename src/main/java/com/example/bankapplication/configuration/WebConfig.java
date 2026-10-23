@@ -61,7 +61,10 @@ public class WebConfig implements WebMvcConfigurer {
         registry.addInterceptor(new RateLimitInterceptor(
                         new RateLimiter(maxLoginAttemptsPerAddress, LOGIN_RATE_WINDOW, clock),
                         HttpServletRequest::getRemoteAddr,
-                        "Too many attempts from this address. Please wait a minute and try again."))
+                        "Too many attempts from this address. Please wait a minute and try again.",
+                        // PhonepayService logs every PhonePe customer in from one address; its calls carry the service key and
+                        // are limited per account by the lockout instead.
+                        request -> TrustedCallerInterceptor.isServiceKey(request.getHeader("X-Service-Key"), serviceApiKey)))
                 .addPathPatterns("/bank/login");
 
         // Public: POST /bank/forgotpin/request, /bank/forgotpin/reset. Request is rate-limited per address
