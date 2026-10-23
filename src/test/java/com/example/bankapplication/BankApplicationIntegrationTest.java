@@ -237,6 +237,81 @@ class BankApplicationIntegrationTest {
         mockMvc.perform(post("/bank/withdraw/otp").contentType(MediaType.APPLICATION_JSON).content("{\"amount\":20000}"))
                 .andExpect(status().isUnauthorized());
     }
+
+    // ---------- security alert emails ----------
+
+    private void createUserWithEmail(long phno, long aadhar, String email) throws Exception {
+        String json = """
+                {"firstName":"Charan","lastName":"Kumar","aadharNumber":%d,"phno":%d,"pin":"%s","email":"%s"}
+                """.formatted(aadhar, phno, PIN, email);
+        mockMvc.perform(asAdmin(post("/bank/save")).contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isOk());
+        org.mockito.Mockito.clearInvocations(mailService);
+    }
+
+    @Test
+    void alerts_aSuccessfulLoginEmailsTheAccountOwner() throws Exception {
+        createUserWithEmail(PHNO_A, AADHAR_A, "alerts@example.com");
+
+        login(PHNO_A, PIN);
+
+        org.mockito.Mockito.verify(mailService, org.mockito.Mockito.timeout(3000)).send(
+                org.mockito.ArgumentMatchers.eq("alerts@example.com"),
+                org.mockito.ArgumentMatchers.eq("New login to your bank account"), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void alerts_aWrongPinSendsNoLoginEmail() throws Exception {
+        createUserWithEmail(PHNO_A, AADHAR_A, "alerts@example.com");
+
+        mockMvc.perform(post("/bank/login").contentType(MediaType.APPLICATION_JSON).content("{\"phno\":" + PHNO_A + ",\"pin\":\"9999\"}"))
+                .andExpect(status().isUnauthorized());
+
+        org.mockito.Mockito.verify(mailService, org.mockito.Mockito.after(500).never()).send(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void alerts_repeatedWrongPinsEmailALockoutNotice() throws Exception {
+        createUserWithEmail(PHNO_A, AADHAR_A, "alerts@example.com");
+
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(post("/bank/login").contentType(MediaType.APPLICATION_JSON).content("{\"phno\":" + PHNO_A + ",\"pin\":\"9999\"}"));
+        }
+
+        org.mockito.Mockito.verify(mailService, org.mockito.Mockito.timeout(3000)).send(
+                org.mockito.ArgumentMatchers.eq("alerts@example.com"),
+                org.mockito.ArgumentMatchers.eq("Your bank account was temporarily locked"), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void alerts_changingTheEmailWarnsTheOldAddressNotTheNewOne() throws Exception {
+        createUserWithEmail(PHNO_A, AADHAR_A, "old@example.com");
+        String token = login(PHNO_A, PIN);
+        org.mockito.Mockito.clearInvocations(mailService);
+
+        mockMvc.perform(as(token, put("/bank/update-email")).contentType(MediaType.APPLICATION_JSON).content("{\"email\":\"new@example.com\"}"))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(mailService, org.mockito.Mockito.timeout(3000)).send(
+                org.mockito.ArgumentMatchers.eq("old@example.com"),
+                org.mockito.ArgumentMatchers.eq("The email on your bank account was changed"), org.mockito.ArgumentMatchers.anyString());
+        org.mockito.Mockito.verify(mailService, org.mockito.Mockito.never()).send(
+                org.mockito.ArgumentMatchers.eq("new@example.com"), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void alerts_aPinResetEmailsAPinChangedNotice() throws Exception {
+        createUserWithEmail(PHNO_A, AADHAR_A, "alerts@example.com");
+
+        mockMvc.perform(asAdmin(put("/bank/admin/set-pin")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":" + PHNO_A + ",\"newPin\":\"5678\"}"))
+                .andExpect(status().is2xxSuccessful());
+
+        org.mockito.Mockito.verify(mailService, org.mockito.Mockito.timeout(3000)).send(
+                org.mockito.ArgumentMatchers.eq("alerts@example.com"),
+                org.mockito.ArgumentMatchers.eq("Your bank PIN was changed"), org.mockito.ArgumentMatchers.anyString());
+    }
     // ---------- helpers ----------
 
     private MockHttpServletRequestBuilder asAdmin(MockHttpServletRequestBuilder request) {

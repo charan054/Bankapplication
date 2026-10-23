@@ -77,6 +77,36 @@ public class BankService {
 
     // ---------- authentication ----------
 
+    // Security alert emails (see SecurityAlertService) go out only after the change that caused them has committed.
+    private SecurityAlertService securityAlerts;
+
+    @Autowired(required = false)
+    void setSecurityAlerts(SecurityAlertService securityAlerts) {
+        this.securityAlerts = securityAlerts;
+    }
+
+    private void alertAfterCommit(SecurityAlertService.Kind kind, Bank account, String toEmail)
+    {
+        if (securityAlerts == null || toEmail == null || toEmail.isBlank())
+        {
+            return;
+        }
+        Instant when = clock.instant();
+        if (TransactionSynchronizationManager.isSynchronizationActive())
+        {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    securityAlerts.alert(kind, account, toEmail, when);
+                }
+            });
+        }
+        else
+        {
+            securityAlerts.alert(kind, account, toEmail, when);
+        }
+    }
+
     /**
      * Deliberately generic on a wrong phone number or PIN ("Invalid phone number or PIN"), so a login attempt
      * cannot be used to discover whether a phone number has an account at all.
@@ -139,6 +169,7 @@ public class BankService {
                 }
                 continue;
             }
+            alertAfterCommit(SecurityAlertService.Kind.LOGIN, user, user.getEmail());
             SessionService.IssuedSession session = sessionService.start(phno);
             String name = (user.getLastName()+" "+user.getFirstName()).toUpperCase();
             return new LoginResponse(session.token(), session.expiresAt(), phno, name);
@@ -157,6 +188,7 @@ public class BankService {
         if (attempts >= MAX_FAILED_LOGIN_ATTEMPTS)
         {
             user.setLockedUntil(now.plus(LOCKOUT_DURATION));
+            alertAfterCommit(SecurityAlertService.Kind.LOCKED_OUT, user, user.getEmail());
         }
         userRepository.saveAndFlush(user);
     }
@@ -177,6 +209,7 @@ public class BankService {
         // an admin resetting a PIN is usually a response to it being compromised - a session opened under the
         // old PIN must not go on working after that
         sessionService.invalidateAllFor(phno);
+        alertAfterCommit(SecurityAlertService.Kind.PIN_CHANGED, user, user.getEmail());
     }
 
     // ---------- registration ----------
@@ -448,8 +481,12 @@ public class BankService {
         {
             throw new UserNotFoundException("User not found");
         }
+        String previousEmail = user.getEmail();
         user.setEmail(email);
-        return userRepository.save(user);
+        Bank saved = userRepository.save(user);
+        // to the address that was just replaced, so a takeover cannot quietly redirect alerts
+        alertAfterCommit(SecurityAlertService.Kind.EMAIL_CHANGED, saved, previousEmail);
+        return saved;
     }
 
     @Transactional
