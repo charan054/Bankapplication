@@ -478,6 +478,7 @@
                 <button type="button" class="pager-btn" id="transactionsNextBtn" onclick="changeTransactionsPage(1)" disabled>Next &rsaquo;</button>
             </div>
             <button type="button" onclick="exportStatementCsv()">Export as CSV</button>
+            <button type="button" onclick="emailStatement()">Email me last month's statement</button>
         </div>
 
     </section>
@@ -951,6 +952,12 @@
     // Downloads the FULL statement matching the current date-range filter, not just the page on screen - fetches
     // every page at the largest allowed size and concatenates them, since the browser has no direct access to
     // export server-side.
+    async function emailStatement() {
+      if (!requireLogin()) return;
+      await apiCall(`${BASE_URL}/statement/email`, { method: "POST" }, { showErrorTab: false });
+      showStatus("Last month's statement was emailed to the address on your account.", "success");
+    }
+
     async function exportStatementCsv() {
       if (!requireLogin()) return;
       const from = document.getElementById("transactionsFrom").value;

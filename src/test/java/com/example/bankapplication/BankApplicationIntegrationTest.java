@@ -480,6 +480,34 @@ class BankApplicationIntegrationTest {
         mockMvc.perform(put("/bank/limits").contentType(MediaType.APPLICATION_JSON).content("{\"dailyLimit\":1}"))
                 .andExpect(status().isUnauthorized());
     }
+
+    // ---------- statement by email ----------
+
+    @Test
+    void statementEmail_sendsTheMonthToTheAddressOnFile() throws Exception {
+        createUserWithEmail(PHNO_A, AADHAR_A, "stmt@example.com");
+        org.mockito.Mockito.when(mailService.sendWithAttachment(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        String token = login(PHNO_A, PIN);
+
+        mockMvc.perform(as(token, post("/bank/statement/email")).param("month", java.time.YearMonth.now().toString()))
+                .andExpect(status().isNoContent());
+
+        org.mockito.Mockito.verify(mailService).sendWithAttachment(org.mockito.ArgumentMatchers.eq("stmt@example.com"),
+                org.mockito.ArgumentMatchers.contains("statement"), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.endsWith(".csv"), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("text/csv"));
+    }
+
+    @Test
+    void statementEmail_badMonthAndFutureMonthAreRefused_andItNeedsALogin() throws Exception {
+        createUserWithEmail(PHNO_A, AADHAR_A, "stmt@example.com");
+        String token = login(PHNO_A, PIN);
+
+        mockMvc.perform(as(token, post("/bank/statement/email")).param("month", "last-week")).andExpect(status().isBadRequest());
+        mockMvc.perform(as(token, post("/bank/statement/email")).param("month", "2999-01")).andExpect(status().isBadRequest());
+        mockMvc.perform(post("/bank/statement/email")).andExpect(status().isUnauthorized());
+    }
     // ---------- helpers ----------
 
     private MockHttpServletRequestBuilder asAdmin(MockHttpServletRequestBuilder request) {
