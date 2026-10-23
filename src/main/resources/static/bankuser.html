@@ -481,6 +481,22 @@
             <button type="button" onclick="emailStatement()">Email me last month's statement</button>
         </div>
 
+        <div class="card">
+            <div class="card-title">
+                <div class="icon">📊</div>
+                <h2>Monthly Summary</h2>
+                <span class="method">GET</span>
+            </div>
+            <p>Money in and money out for each month, and your biggest single payment. Requires login.</p>
+            <select id="summaryMonths">
+                <option value="3">Last 3 months</option>
+                <option value="6" selected>Last 6 months</option>
+                <option value="12">Last 12 months</option>
+            </select>
+            <button class="purple" onclick="loadSummary()">Show Summary</button>
+            <div id="summaryWrap"></div>
+        </div>
+
     </section>
 
     <div id="status" class="status-panel">
@@ -952,6 +968,18 @@
     // Downloads the FULL statement matching the current date-range filter, not just the page on screen - fetches
     // every page at the largest allowed size and concatenates them, since the browser has no direct access to
     // export server-side.
+    async function loadSummary() {
+      if (!requireLogin()) return;
+      const months = document.getElementById("summaryMonths").value;
+      const rows = await apiCall(`${BASE_URL}/summary?months=${encodeURIComponent(months)}`, {}, { showErrorTab: false });
+      const money = v => "&#8377;" + Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      document.getElementById("summaryWrap").innerHTML = `<table style="width:100%; border-collapse:collapse; font-size:14px;">
+        <thead><tr><th align="left">Month</th><th align="right">In</th><th align="right">Out</th><th align="right">Net</th><th align="right">Biggest payment</th></tr></thead>
+        <tbody>${rows.map(r => `<tr><td>${r.month}</td><td align="right">${money(r.moneyIn)}</td><td align="right">${money(r.moneyOut)}</td>
+          <td align="right" style="color:${Number(r.net) < 0 ? "#c0392b" : "#1e8449"};">${money(r.net)}</td><td align="right">${Number(r.biggestDebit) ? money(r.biggestDebit) : "-"}</td></tr>`).join("")}</tbody></table>`;
+      showStatus("Summary loaded.", "success");
+    }
+
     async function emailStatement() {
       if (!requireLogin()) return;
       await apiCall(`${BASE_URL}/statement/email`, { method: "POST" }, { showErrorTab: false });
