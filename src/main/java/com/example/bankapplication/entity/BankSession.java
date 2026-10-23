@@ -21,4 +21,9 @@ public class BankSession {
     private long phno;
     private Instant createdAt;
     private Instant expiresAt;
+    // Where this login came from (browser string shortened, caller address), so the customer can recognise their own logins.
+    @Column(length = 200)
+    private String userAgent;
+    @Column(length = 45)
+    private String remoteAddr;
 }

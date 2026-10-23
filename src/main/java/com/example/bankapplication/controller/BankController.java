@@ -25,6 +25,7 @@ import com.example.bankapplication.exception.WithdrawException;
 import com.example.bankapplication.service.BankService;
 import com.example.bankapplication.service.PinResetService;
 import com.example.bankapplication.service.SignupService;
+import com.example.bankapplication.service.SessionService;
 import com.example.bankapplication.service.WithdrawalOtpService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,6 +56,8 @@ public class BankController {
     private PinResetService pinResetService;
     @Autowired
     private SignupService signupService;
+    @Autowired
+    private SessionService sessionService;
     @org.springframework.beans.factory.annotation.Value("${bank.service.api-key}")
     private String serviceApiKey;
     @Autowired
@@ -64,13 +67,20 @@ public class BankController {
 
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request,
-                               @RequestHeader(value = "X-Service-Key", required = false) String serviceKey) {
+                               @RequestHeader(value = "X-Service-Key", required = false) String serviceKey,
+                               jakarta.servlet.http.HttpServletRequest http) {
         // PhonepayService logs customers in here with the service key on every PhonePe login: same checks, but no
         // "new login" email (see BankService.loginAsTrustedService) and no per-address rate limit (see WebConfig).
         if (TrustedCallerInterceptor.isServiceKey(serviceKey, serviceApiKey)) {
             return bankService.loginAsTrustedService(request.phno(), request.pin());
         }
-        return bankService.login(request.phno(), request.pin());
+        LoginResponse issued = bankService.login(request.phno(), request.pin());
+        try {
+            sessionService.annotate(issued.token(), http.getHeader("User-Agent"), http.getRemoteAddr());
+        } catch (RuntimeException e) {
+            // only labels the login in the customer's "Active logins" list; never fail a login over it
+        }
+        return issued;
     }
 
     // Direct account creation for the admin console (admin key) and trusted callers (service key): no emailed code.
@@ -114,6 +124,30 @@ public class BankController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(@RequestHeader("Authorization") String authorization) {
         bankService.logout(CustomerAuthInterceptor.bearerToken(authorization));
+    }
+
+    // The caller's own live logins (what Active logins shows), with the one making this request marked current.
+    @GetMapping("/sessions")
+    public List<SessionService.SessionView> mySessions(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
+                                                       @RequestHeader("Authorization") String authorization) {
+        return sessionService.listFor(phno, CustomerAuthInterceptor.bearerToken(authorization));
+    }
+
+    @DeleteMapping("/sessions/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void endSession(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno, @PathVariable long id) {
+        if (!sessionService.endOwned(phno, id)) {
+            throw new UserNotFoundException("Login not found");
+        }
+    }
+
+    // Sign out everywhere. keepCurrent=true leaves this browser signed in.
+    @PostMapping("/logout-all")
+    public java.util.Map<String, Integer> logoutAll(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
+                                                    @RequestHeader("Authorization") String authorization,
+                                                    @RequestParam(defaultValue = "false") boolean keepCurrent) {
+        int ended = sessionService.endAll(phno, keepCurrent ? CustomerAuthInterceptor.bearerToken(authorization) : null);
+        return java.util.Map.of("ended", ended);
     }
 
     @GetMapping("/me")

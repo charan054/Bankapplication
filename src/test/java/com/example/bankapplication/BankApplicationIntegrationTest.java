@@ -351,6 +351,74 @@ class BankApplicationIntegrationTest {
                 org.mockito.ArgumentMatchers.eq("alerts@example.com"),
                 org.mockito.ArgumentMatchers.eq("New login to your bank account"), org.mockito.ArgumentMatchers.anyString());
     }
+
+    // ---------- active logins ----------
+
+    private String loginWithAgent(long phno, String agent) throws Exception {
+        String body = mockMvc.perform(post("/bank/login").header("User-Agent", agent).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phno\":" + phno + ",\"pin\":\"" + PIN + "\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"token\":\"([^\"]+)\"").matcher(body);
+        org.junit.jupiter.api.Assertions.assertTrue(m.find());
+        return m.group(1);
+    }
+
+    @Test
+    void sessions_listShowsEachLoginWithItsDeviceAndMarksTheCurrentOne() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        String laptop = loginWithAgent(PHNO_A, "Mozilla/5.0 (Windows NT 10.0) Chrome/120.0 Safari/537.36");
+        loginWithAgent(PHNO_A, "Mozilla/5.0 (Linux; Android 14) Chrome/120.0 Mobile Safari/537.36");
+
+        mockMvc.perform(as(laptop, get("/bank/sessions")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[?(@.current==true)].device").value("Chrome on Windows"))
+                .andExpect(jsonPath("$[?(@.current==false)].device").value("Chrome on Android"))
+                .andExpect(jsonPath("$[0].tokenHash").doesNotExist());
+    }
+
+    @Test
+    void sessions_aCustomerCanEndAnotherLoginButNotSomeoneElses() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        createUser(PHNO_B, AADHAR_B);
+        String mine = loginWithAgent(PHNO_A, "Mozilla/5.0 (Windows NT 10.0) Chrome/120.0");
+        String stolen = loginWithAgent(PHNO_A, "Mozilla/5.0 (Linux; Android 14) Firefox/120.0");
+        String other = loginWithAgent(PHNO_B, "Mozilla/5.0 (Windows NT 10.0) Chrome/120.0");
+
+        String list = mockMvc.perform(as(mine, get("/bank/sessions"))).andReturn().getResponse().getContentAsString();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"id\":(\\d+),[^}]*\"current\":false").matcher(list);
+        org.junit.jupiter.api.Assertions.assertTrue(m.find());
+        String otherLoginId = m.group(1);
+
+        mockMvc.perform(as(mine, delete("/bank/sessions/" + otherLoginId))).andExpect(status().isNoContent());
+        // that login is dead now
+        mockMvc.perform(as(stolen, get("/bank/me"))).andExpect(status().isUnauthorized());
+        // an unknown id (or someone else's) is a 404, and the other customer is untouched
+        mockMvc.perform(as(mine, delete("/bank/sessions/" + otherLoginId))).andExpect(status().isNotFound());
+        mockMvc.perform(as(other, get("/bank/me"))).andExpect(status().isOk());
+    }
+
+    @Test
+    void logoutAll_keepCurrentLeavesThisLoginAndEndsTheRest() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        String here = loginWithAgent(PHNO_A, "Mozilla/5.0 (Windows NT 10.0) Chrome/120.0");
+        String there = loginWithAgent(PHNO_A, "Mozilla/5.0 (Linux; Android 14) Chrome/120.0");
+
+        mockMvc.perform(as(here, post("/bank/logout-all")).param("keepCurrent", "true"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.ended").value(1));
+
+        mockMvc.perform(as(here, get("/bank/me"))).andExpect(status().isOk());
+        mockMvc.perform(as(there, get("/bank/me"))).andExpect(status().isUnauthorized());
+
+        mockMvc.perform(as(here, post("/bank/logout-all"))).andExpect(status().isOk()).andExpect(jsonPath("$.ended").value(1));
+        mockMvc.perform(as(here, get("/bank/me"))).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void sessions_needALogin() throws Exception {
+        mockMvc.perform(get("/bank/sessions")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/bank/logout-all")).andExpect(status().isUnauthorized());
+    }
     // ---------- helpers ----------
 
     private MockHttpServletRequestBuilder asAdmin(MockHttpServletRequestBuilder request) {
