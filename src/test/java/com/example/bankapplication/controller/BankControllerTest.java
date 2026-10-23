@@ -40,6 +40,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -77,6 +78,8 @@ class BankControllerTest {
     private PinResetService pinResetService;
     @MockitoBean
     private SignupService signupService;
+    @MockitoBean
+    private com.example.bankapplication.service.WithdrawalOtpService withdrawalOtpService;
 
     @BeforeEach
     void loginTheCaller() {
@@ -573,6 +576,48 @@ class BankControllerTest {
     }
 
 
+
+    // ---------- large withdrawals: emailed code ----------
+
+    @Test
+    void withdraw_passesTheCodeOnToTheOtpCheck() throws Exception {
+        when(bankService.findByphno(PHNO)).thenReturn(bankWithBalance(50000));
+        when(bankService.withdrawByphno(any(Long.class), any())).thenReturn("Withdraw Successful");
+
+        mockMvc.perform(asCaller(put("/bank/withdraw")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":20000,\"otp\":\"123456\"}"))
+                .andExpect(status().isOk());
+
+        verify(withdrawalOtpService).requireValidCode(eq(PHNO), org.mockito.ArgumentMatchers.argThat(a -> a.intValue() == 20000), eq("123456"));
+    }
+
+    @Test
+    void withdraw_whenACodeIsRequiredAndMissing_returns403AndDebitsNothing() throws Exception {
+        when(bankService.findByphno(PHNO)).thenReturn(bankWithBalance(50000));
+        org.mockito.Mockito.doThrow(new com.example.bankapplication.exception.OtpRequiredException("A confirmation code is required"))
+                .when(withdrawalOtpService).requireValidCode(any(Long.class), any(), any());
+
+        mockMvc.perform(asCaller(put("/bank/withdraw")).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":20000}"))
+                .andExpect(status().isForbidden());
+
+        verify(bankService, never()).withdrawByphno(any(Long.class), any());
+    }
+
+    @Test
+    void withdrawOtp_needsALogin() throws Exception {
+        mockMvc.perform(post("/bank/withdraw/otp").contentType(MediaType.APPLICATION_JSON).content("{\"amount\":20000}"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(withdrawalOtpService);
+    }
+
+    @Test
+    void withdrawOtp_forALoggedInCustomer_returns204() throws Exception {
+        mockMvc.perform(asCaller(post("/bank/withdraw/otp")).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":20000}"))
+                .andExpect(status().isNoContent());
+
+        verify(withdrawalOtpService).request(eq(PHNO), org.mockito.ArgumentMatchers.argThat(a -> a.intValue() == 20000));
+    }
     // ---------- POST /bank/register/request + /bank/register/verify (public, emailed code) ----------
 
     private static final String VALID_SIGNUP_JSON = """

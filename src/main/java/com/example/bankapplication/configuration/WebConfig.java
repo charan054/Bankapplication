@@ -87,6 +87,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/bank/me",
                         "/bank/deposit",
                         "/bank/withdraw",
+                        "/bank/withdraw/otp",
                         "/bank/update-phone",
                         "/bank/update-email",
                         "/bank/my-transactions");
@@ -98,7 +99,7 @@ public class WebConfig implements WebMvcConfigurer {
                         new RateLimiter(maxMoneyAttemptsPerAccount, MONEY_RATE_WINDOW, clock),
                         request -> String.valueOf(request.getAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO)),
                         "Too many deposit/withdraw requests. Please wait a minute and try again."))
-                .addPathPatterns("/bank/deposit", "/bank/withdraw");
+                .addPathPatterns("/bank/deposit", "/bank/withdraw", "/bank/withdraw/otp");
 
         // Trusted callers: act on any account, named by phone/account number in the request. Used by bank.html
         // (admin key; also direct account creation, POST /bank/save) and by PhonepayService's backend calls (service key).
