@@ -64,6 +64,8 @@ public class BankController {
     private StatementEmailService statementEmailService;
     @Autowired
     private DailyLimitService dailyLimitService;
+    @Autowired
+    private com.example.bankapplication.service.SpendingSummaryService spendingSummaryService;
     @org.springframework.beans.factory.annotation.Value("${bank.service.api-key}")
     private String serviceApiKey;
     @Autowired
@@ -167,6 +169,14 @@ public class BankController {
     public DailyLimitService.LimitView changeLimit(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
                                                    @RequestBody com.example.bankapplication.dto.LimitRequest request) {
         return dailyLimitService.change(phno, request.dailyLimit());
+    }
+
+    // Money in and out per month for the caller, newest first (months: 1-12, default 6).
+    @GetMapping("/summary")
+    public List<com.example.bankapplication.service.SpendingSummaryService.Month> summary(
+            @RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
+            @RequestParam(required = false) Integer months) {
+        return spendingSummaryService.summary(phno, months);
     }
 
     // Emails the caller their statement for one month (YYYY-MM, default: last month) to the address on file.

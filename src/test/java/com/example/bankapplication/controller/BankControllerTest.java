@@ -83,6 +83,8 @@ class BankControllerTest {
     @MockitoBean
     private com.example.bankapplication.service.DailyLimitService dailyLimitService;
     @MockitoBean
+    private com.example.bankapplication.service.SpendingSummaryService spendingSummaryService;
+    @MockitoBean
     private com.example.bankapplication.service.WithdrawalOtpService withdrawalOtpService;
 
     @BeforeEach
@@ -138,6 +140,7 @@ class BankControllerTest {
                 put("/bank/withdraw").contentType(MediaType.APPLICATION_JSON).content("{\"amount\":10}"),
                 put("/bank/update-phone").contentType(MediaType.APPLICATION_JSON).content("{\"newPhno\":9123456789}"),
                 get("/bank/my-transactions"),
+                get("/bank/summary"),
                 delete("/bank/me"));
     }
 
@@ -1179,5 +1182,18 @@ class BankControllerTest {
         mockMvc.perform(asAdmin(post("/bank/transfer")).contentType(MediaType.APPLICATION_JSON).content(VALID_TRANSFER_JSON))
                 .andExpect(status().isConflict())
                 .andExpect(content().string(RETRY_MESSAGE));
+    }
+
+    @Test
+    void summary_isForTheCallersOwnAccountOnly() throws Exception {
+        when(spendingSummaryService.summary(eq(PHNO), isNull())).thenReturn(List.of(
+                new com.example.bankapplication.service.SpendingSummaryService.Month("2026-10", java.math.BigDecimal.TEN,
+                        java.math.BigDecimal.ONE, java.math.BigDecimal.valueOf(9), 2, java.math.BigDecimal.ONE)));
+
+        mockMvc.perform(asCaller(get("/bank/summary")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].month").value("2026-10"));
+
+        verify(spendingSummaryService, never()).summary(eq(9000000001L), any());
     }
 }
