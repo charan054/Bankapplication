@@ -45,6 +45,16 @@ public class Bank {
     // A simple lockout so a 4-6 digit PIN cannot just be brute-forced: counted on each wrong PIN, reset on success.
     @JsonIgnore
     private int failedLoginAttempts;
+    // Customer-chosen cap on money leaving the account per day (null = the bank default). A RAISE waits out a delay before it
+    // applies (pendingDailyLimit); lowering is immediate. See DailyLimitService.
+    @JsonIgnore
+    @Column(precision = 19, scale = 2)
+    private BigDecimal dailyLimit;
+    @JsonIgnore
+    @Column(precision = 19, scale = 2)
+    private BigDecimal pendingDailyLimit;
+    @JsonIgnore
+    private Instant pendingLimitEffectiveAt;
     @JsonIgnore
     private Instant lockedUntil;
     // Optimistic lock: Hibernate bumps this on every update and refuses an update made from a stale copy.

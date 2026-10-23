@@ -419,6 +419,67 @@ class BankApplicationIntegrationTest {
         mockMvc.perform(get("/bank/sessions")).andExpect(status().isUnauthorized());
         mockMvc.perform(post("/bank/logout-all")).andExpect(status().isUnauthorized());
     }
+
+    // ---------- daily limit ----------
+
+    @Test
+    void dailyLimit_aCustomerCanLowerItAndThenCannotWithdrawPastIt() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        depositByPhno(PHNO_A, "5000");
+        String token = login(PHNO_A, PIN);
+
+        mockMvc.perform(as(token, get("/bank/limits"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.dailyLimit").value(100000)).andExpect(jsonPath("$.isDefault").value(true));
+
+        mockMvc.perform(as(token, put("/bank/limits")).contentType(MediaType.APPLICATION_JSON).content("{\"dailyLimit\":1000}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.dailyLimit").value(1000));
+
+        mockMvc.perform(as(token, put("/bank/withdraw")).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":700}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(as(token, put("/bank/withdraw")).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":400}"))
+                .andExpect(status().isBadRequest());
+        balanceShouldBe(PHNO_A, 4300.0);
+
+        mockMvc.perform(as(token, get("/bank/limits"))).andExpect(jsonPath("$.usedToday").value(700))
+                .andExpect(jsonPath("$.remainingToday").value(300));
+    }
+
+    @Test
+    void dailyLimit_raisingItDoesNotApplyStraightAway() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        depositByPhno(PHNO_A, "5000");
+        String token = login(PHNO_A, PIN);
+        mockMvc.perform(as(token, put("/bank/limits")).contentType(MediaType.APPLICATION_JSON).content("{\"dailyLimit\":1000}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(as(token, put("/bank/limits")).contentType(MediaType.APPLICATION_JSON).content("{\"dailyLimit\":50000}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dailyLimit").value(1000))
+                .andExpect(jsonPath("$.pendingLimit").value(50000));
+
+        mockMvc.perform(as(token, put("/bank/withdraw")).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":2000}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void dailyLimit_alsoStopsDebitsMadeByTheTrustedBackend() throws Exception {
+        createUser(PHNO_A, AADHAR_A);
+        depositByPhno(PHNO_A, "5000");
+        String token = login(PHNO_A, PIN);
+        mockMvc.perform(as(token, put("/bank/limits")).contentType(MediaType.APPLICATION_JSON).content("{\"dailyLimit\":1000}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(asAdmin(put("/bank/withdrawByphno")).param("phno", "" + PHNO_A).param("balance", "1500"))
+                .andExpect(status().isBadRequest());
+        balanceShouldBe(PHNO_A, 5000.0);
+    }
+
+    @Test
+    void dailyLimit_needsALogin() throws Exception {
+        mockMvc.perform(get("/bank/limits")).andExpect(status().isUnauthorized());
+        mockMvc.perform(put("/bank/limits").contentType(MediaType.APPLICATION_JSON).content("{\"dailyLimit\":1}"))
+                .andExpect(status().isUnauthorized());
+    }
     // ---------- helpers ----------
 
     private MockHttpServletRequestBuilder asAdmin(MockHttpServletRequestBuilder request) {

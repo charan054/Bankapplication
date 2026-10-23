@@ -79,6 +79,8 @@ class BankControllerTest {
     @MockitoBean
     private SignupService signupService;
     @MockitoBean
+    private com.example.bankapplication.service.DailyLimitService dailyLimitService;
+    @MockitoBean
     private com.example.bankapplication.service.WithdrawalOtpService withdrawalOtpService;
 
     @BeforeEach

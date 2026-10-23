@@ -450,6 +450,19 @@
 
         <div class="card">
             <div class="card-title">
+                <div class="icon">🛡️</div>
+                <h2>Daily Limit</h2>
+                <span class="method">PUT</span>
+            </div>
+            <p>The most that can leave your account in one day (withdrawals and PhonePe payments). Lowering applies at once; raising starts after a 24 hour wait. Requires login.</p>
+            <div id="limitInfo"></div>
+            <input type="number" id="newLimit" placeholder="New daily limit (INR)" />
+            <button onclick="loadLimit()">Show my limit</button>
+            <button class="orange" onclick="changeLimit()">Change limit</button>
+        </div>
+
+        <div class="card">
+            <div class="card-title">
                 <div class="icon">📜</div>
                 <h2>Statement</h2>
                 <span class="method">GET</span>
@@ -864,6 +877,26 @@
       const r = await apiCall(`${BASE_URL}/logout-all?keepCurrent=true`, { method: "POST" }, { showErrorTab: false });
       showStatus(`Signed out of ${r.ended} other login(s).`, "success");
       loadSessions();
+    }
+
+    function showLimit(v) {
+      document.getElementById("limitInfo").innerHTML =
+        `<p>Limit <b>INR ${v.dailyLimit}</b>${v.isDefault ? " (bank default)" : ""} &middot; used today INR ${v.usedToday} &middot; left INR ${v.remainingToday}`
+        + (v.pendingLimit ? `<br>Raise to INR ${v.pendingLimit} starts ${escapeHtml(new Date(v.pendingLimitEffectiveAt).toLocaleString())}` : "") + "</p>";
+    }
+
+    async function loadLimit() {
+      if (!requireLogin()) return;
+      showLimit(await apiCall(`${BASE_URL}/limits`, { method: "GET" }, { showErrorTab: false }));
+    }
+
+    async function changeLimit() {
+      if (!requireLogin()) return;
+      const value = document.getElementById("newLimit").value;
+      if (!value) return showStatus("Enter the new daily limit.", "error");
+      const v = await apiCall(`${BASE_URL}/limits`, jsonRequest("PUT", { dailyLimit: Number(value) }), { showErrorTab: false });
+      showLimit(v);
+      showStatus(v.pendingLimit ? "Raise scheduled - it starts after the waiting period." : "Daily limit updated.", "success");
     }
 
     async function updatePhno() {

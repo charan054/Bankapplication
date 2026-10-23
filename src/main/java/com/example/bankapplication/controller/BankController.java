@@ -26,6 +26,7 @@ import com.example.bankapplication.service.BankService;
 import com.example.bankapplication.service.PinResetService;
 import com.example.bankapplication.service.SignupService;
 import com.example.bankapplication.service.SessionService;
+import com.example.bankapplication.service.DailyLimitService;
 import com.example.bankapplication.service.WithdrawalOtpService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +59,8 @@ public class BankController {
     private SignupService signupService;
     @Autowired
     private SessionService sessionService;
+    @Autowired
+    private DailyLimitService dailyLimitService;
     @org.springframework.beans.factory.annotation.Value("${bank.service.api-key}")
     private String serviceApiKey;
     @Autowired
@@ -148,6 +151,19 @@ public class BankController {
                                                     @RequestParam(defaultValue = "false") boolean keepCurrent) {
         int ended = sessionService.endAll(phno, keepCurrent ? CustomerAuthInterceptor.bearerToken(authorization) : null);
         return java.util.Map.of("ended", ended);
+    }
+
+    // The caller's daily limit, what is used today, and any raise that is still waiting to start.
+    @GetMapping("/limits")
+    public DailyLimitService.LimitView myLimit(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno) {
+        return dailyLimitService.view(phno);
+    }
+
+    // Lowering applies at once; raising starts after the waiting period (see DailyLimitService).
+    @PutMapping("/limits")
+    public DailyLimitService.LimitView changeLimit(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
+                                                   @RequestBody com.example.bankapplication.dto.LimitRequest request) {
+        return dailyLimitService.change(phno, request.dailyLimit());
     }
 
     @GetMapping("/me")
