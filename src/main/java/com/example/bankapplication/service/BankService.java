@@ -122,6 +122,22 @@ public class BankService {
     @Transactional(noRollbackFor = InvalidCredentialsException.class)
     public LoginResponse login(long phno, String rawPin)
     {
+        return doLogin(phno, rawPin, true);
+    }
+
+    /**
+     * The same credential check for a trusted backend (PhonepayService, with the service key) logging a customer in on
+     * their behalf: identical PIN check, lockout and session, but no "new login" email - it is not a login to the bank
+     * itself, and one email per PhonePe payment would be noise. A lockout alert is still sent.
+     */
+    @Transactional(noRollbackFor = InvalidCredentialsException.class)
+    public LoginResponse loginAsTrustedService(long phno, String rawPin)
+    {
+        return doLogin(phno, rawPin, false);
+    }
+
+    private LoginResponse doLogin(long phno, String rawPin, boolean alertOnSuccess)
+    {
         for (int attempt = 1; ; attempt++)
         {
             Bank user = userRepository.findByphno(phno);
@@ -169,7 +185,10 @@ public class BankService {
                 }
                 continue;
             }
-            alertAfterCommit(SecurityAlertService.Kind.LOGIN, user, user.getEmail());
+            if (alertOnSuccess)
+            {
+                alertAfterCommit(SecurityAlertService.Kind.LOGIN, user, user.getEmail());
+            }
             SessionService.IssuedSession session = sessionService.start(phno);
             String name = (user.getLastName()+" "+user.getFirstName()).toUpperCase();
             return new LoginResponse(session.token(), session.expiresAt(), phno, name);

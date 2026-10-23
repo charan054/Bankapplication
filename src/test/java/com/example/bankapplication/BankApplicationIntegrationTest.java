@@ -312,6 +312,45 @@ class BankApplicationIntegrationTest {
                 org.mockito.ArgumentMatchers.eq("alerts@example.com"),
                 org.mockito.ArgumentMatchers.eq("Your bank PIN was changed"), org.mockito.ArgumentMatchers.anyString());
     }
+
+    // ---------- logins made by a trusted backend (PhonepayService) ----------
+
+    @Test
+    void trustedServiceLogin_worksButSendsNoNewLoginEmail() throws Exception {
+        createUserWithEmail(PHNO_A, AADHAR_A, "alerts@example.com");
+
+        mockMvc.perform(post("/bank/login").header("X-Service-Key", "test-service-key")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"phno\":" + PHNO_A + ",\"pin\":\"" + PIN + "\"}"))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(mailService, org.mockito.Mockito.after(500).never()).send(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void trustedServiceLogin_isNotHeldToThePerAddressLoginLimit() throws Exception {
+        createUserWithEmail(PHNO_A, AADHAR_A, "alerts@example.com");
+
+        // far more than the per-address budget, as when every PhonePe customer logs in through one backend
+        for (int i = 0; i < 40; i++) {
+            mockMvc.perform(post("/bank/login").header("X-Service-Key", "test-service-key")
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"phno\":" + PHNO_A + ",\"pin\":\"" + PIN + "\"}"))
+                    .andExpect(status().isOk());
+        }
+    }
+
+    @Test
+    void aWrongServiceKeyOnLoginIsJustAnOrdinaryLogin() throws Exception {
+        createUserWithEmail(PHNO_A, AADHAR_A, "alerts@example.com");
+
+        mockMvc.perform(post("/bank/login").header("X-Service-Key", "not-the-key")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"phno\":" + PHNO_A + ",\"pin\":\"" + PIN + "\"}"))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(mailService, org.mockito.Mockito.timeout(3000)).send(
+                org.mockito.ArgumentMatchers.eq("alerts@example.com"),
+                org.mockito.ArgumentMatchers.eq("New login to your bank account"), org.mockito.ArgumentMatchers.anyString());
+    }
     // ---------- helpers ----------
 
     private MockHttpServletRequestBuilder asAdmin(MockHttpServletRequestBuilder request) {
