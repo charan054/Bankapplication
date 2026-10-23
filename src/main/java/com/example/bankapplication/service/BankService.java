@@ -77,6 +77,14 @@ public class BankService {
 
     // ---------- authentication ----------
 
+    // The customer's daily cap on money leaving the account (see DailyLimitService). Optional so unit tests need not wire it.
+    private DailyLimitService dailyLimits;
+
+    @Autowired(required = false)
+    void setDailyLimits(DailyLimitService dailyLimits) {
+        this.dailyLimits = dailyLimits;
+    }
+
     // Security alert emails (see SecurityAlertService) go out only after the change that caused them has committed.
     private SecurityAlertService securityAlerts;
 
@@ -291,6 +299,10 @@ public class BankService {
         if(exis!=null)
         {
             checkSufficientFunds(exis,amount);
+            if (dailyLimits != null)
+            {
+                dailyLimits.requireWithinLimit(exis, amount);
+            }
             exis.setBalance(exis.getBalance().subtract(amount));
             BankTransaction b=new BankTransaction();
             b.setPhno(phno);

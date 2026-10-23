@@ -37,4 +37,8 @@ public interface BankTransactionRepository extends JpaRepository<BankTransaction
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("UPDATE BankTransaction t SET t.createdAt = :guessedAt WHERE t.createdAt IS NULL")
     int backfillMissingCreatedAt(@Param("guessedAt") Instant guessedAt);
+
+    // Money that left an account since a moment (the daily limit): every Debit - withdrawals and PhonePe payments alike.
+    @Query("SELECT COALESCE(SUM(t.amount), 0) FROM BankTransaction t WHERE t.phno = :phno AND t.action = 'Debit' AND t.createdAt >= :since")
+    java.math.BigDecimal sumDebitsSince(@Param("phno") long phno, @Param("since") Instant since);
 }

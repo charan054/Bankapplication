@@ -20,7 +20,7 @@ import java.util.concurrent.Executors;
 public class SecurityAlertService {
     private static final Logger log = LoggerFactory.getLogger(SecurityAlertService.class);
 
-    public enum Kind { LOGIN, LOCKED_OUT, PIN_CHANGED, EMAIL_CHANGED }
+    public enum Kind { LOGIN, LOCKED_OUT, PIN_CHANGED, EMAIL_CHANGED, LIMIT_CHANGED }
 
     private final MailService mailService;
     private final boolean enabled;
@@ -74,6 +74,11 @@ public class SecurityAlertService {
                 subject = "The email on your bank account was changed";
                 body = "The email address for account " + phone + " (this one) was replaced at " + when + ". "
                         + "If this wasn't you, contact the bank immediately.";
+            }
+            case LIMIT_CHANGED -> {
+                subject = "Your daily limit was changed";
+                body = "The daily limit on account " + phone + " was changed at " + when + ". A higher limit only starts after a waiting period. "
+                        + "If this wasn't you, change your PIN and contact the bank immediately.";
             }
             default -> {
                 return;
