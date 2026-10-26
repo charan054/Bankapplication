@@ -66,6 +66,8 @@ public class BankController {
     private DailyLimitService dailyLimitService;
     @Autowired
     private com.example.bankapplication.service.SpendingSummaryService spendingSummaryService;
+    @Autowired
+    private com.example.bankapplication.service.HelpChatService helpChatService;
     @org.springframework.beans.factory.annotation.Value("${bank.service.api-key}")
     private String serviceApiKey;
     @Autowired
@@ -169,6 +171,16 @@ public class BankController {
     public DailyLimitService.LimitView changeLimit(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
                                                    @RequestBody com.example.bankapplication.dto.LimitRequest request) {
         return dailyLimitService.change(phno, request.dailyLimit());
+    }
+
+    public record ChatAsk(String message) {
+    }
+
+    // The portal's help chat: answers from the caller's own account, never anyone else's.
+    @PostMapping("/chat")
+    public com.example.bankapplication.service.HelpChatService.Reply chat(
+            @RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno, @RequestBody ChatAsk request) {
+        return helpChatService.ask(phno, request.message());
     }
 
     // Money in and out per month for the caller, newest first (months: 1-12, default 6).

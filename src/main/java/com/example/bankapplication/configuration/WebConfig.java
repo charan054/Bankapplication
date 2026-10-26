@@ -92,6 +92,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/bank/limits",
                         "/bank/statement/email",
                         "/bank/summary",
+                        "/bank/chat",
                         "/bank/sessions/*",
                         "/bank/me",
                         "/bank/deposit",

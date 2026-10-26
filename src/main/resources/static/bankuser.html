@@ -1034,5 +1034,25 @@
     updateSessionBar();
 </script>
 
+<script src="/js/chat-widget.js"></script>
+<script>
+  ChatWidget.init({
+    title: "Help chat",
+    welcome: "Hi! I can look up your balance, daily limit and recent transactions, and explain payments and PIN problems. Never type your PIN here.",
+    suggestions: ["My balance", "My daily limit", "Last transactions", "Payment problem", "Forgot PIN"],
+    ready: () => !!sessionToken,
+    notReady: "Please log in first and I can look at your account.",
+    ask: async text => {
+      const response = await fetch(`${BASE_URL}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + sessionToken },
+        body: JSON.stringify({ message: text })
+      });
+      if (response.status === 401) throw new Error("Your login has ended - please log in again.");
+      if (!response.ok) throw new Error((await response.text()) || "HTTP " + response.status);
+      return response.json();
+    }
+  });
+</script>
 </body>
 </html>

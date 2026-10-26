@@ -85,6 +85,8 @@ class BankControllerTest {
     @MockitoBean
     private com.example.bankapplication.service.SpendingSummaryService spendingSummaryService;
     @MockitoBean
+    private com.example.bankapplication.service.HelpChatService helpChatService;
+    @MockitoBean
     private com.example.bankapplication.service.WithdrawalOtpService withdrawalOtpService;
 
     @BeforeEach
@@ -141,6 +143,7 @@ class BankControllerTest {
                 put("/bank/update-phone").contentType(MediaType.APPLICATION_JSON).content("{\"newPhno\":9123456789}"),
                 get("/bank/my-transactions"),
                 get("/bank/summary"),
+                post("/bank/chat").contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"hi\"}"),
                 delete("/bank/me"));
     }
 
@@ -1195,5 +1198,17 @@ class BankControllerTest {
                 .andExpect(jsonPath("$[0].month").value("2026-10"));
 
         verify(spendingSummaryService, never()).summary(eq(9000000001L), any());
+    }
+
+    @Test
+    void chat_answersForTheCallersOwnAccountOnly() throws Exception {
+        when(helpChatService.ask(eq(PHNO), eq("my balance"))).thenReturn(
+                new com.example.bankapplication.service.HelpChatService.Reply("Your balance is Rs. 10.00.", List.of("My balance")));
+
+        mockMvc.perform(asCaller(post("/bank/chat")).contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"my balance\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.text").value("Your balance is Rs. 10.00."));
+
+        verify(helpChatService, never()).ask(eq(9000000001L), any());
     }
 }
