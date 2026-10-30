@@ -83,6 +83,8 @@ class BankControllerTest {
     @MockitoBean
     private com.example.bankapplication.service.DailyLimitService dailyLimitService;
     @MockitoBean
+    private com.example.bankapplication.service.FixedDepositService fixedDepositService;
+    @MockitoBean
     private com.example.bankapplication.service.SpendingSummaryService spendingSummaryService;
     @MockitoBean
     private com.example.bankapplication.service.HelpChatService helpChatService;
@@ -142,6 +144,10 @@ class BankControllerTest {
                 put("/bank/withdraw").contentType(MediaType.APPLICATION_JSON).content("{\"amount\":10}"),
                 put("/bank/update-phone").contentType(MediaType.APPLICATION_JSON).content("{\"newPhno\":9123456789}"),
                 get("/bank/my-transactions"),
+                get("/bank/fd"),
+                get("/bank/fd/rates"),
+                post("/bank/fd").contentType(MediaType.APPLICATION_JSON).content("{\"amount\":5000,\"termMonths\":6}"),
+                post("/bank/fd/1/break"),
                 get("/bank/summary"),
                 post("/bank/chat").contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"hi\"}"),
                 delete("/bank/me"));
@@ -1210,5 +1216,42 @@ class BankControllerTest {
                 .andExpect(jsonPath("$.text").value("Your balance is Rs. 10.00."));
 
         verify(helpChatService, never()).ask(eq(9000000001L), any());
+    }
+
+    // ============ fixed deposits ============
+
+    @Test
+    void openingAFixedDeposit_actsOnTheCallersOwnAccountOnly() throws Exception {
+        var fd = new com.example.bankapplication.entity.FixedDeposit();
+        fd.setPhno(PHNO);
+        fd.setPrincipal(new java.math.BigDecimal("5000.00"));
+        fd.setTermMonths(6);
+        when(fixedDepositService.open(eq(PHNO), any(), eq(6))).thenReturn(fd);
+
+        mockMvc.perform(asCaller(post("/bank/fd")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":5000,\"termMonths\":6,\"phno\":9111111111}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.termMonths").value(6));
+
+        verify(fixedDepositService).open(eq(PHNO), any(), eq(6));
+    }
+
+    @Test
+    void breakingAFixedDeposit_passesTheCallerAndTheDepositId() throws Exception {
+        when(fixedDepositService.breakEarly(PHNO, 12L)).thenReturn(new com.example.bankapplication.entity.FixedDeposit());
+
+        mockMvc.perform(asCaller(post("/bank/fd/12/break"))).andExpect(status().isOk());
+
+        verify(fixedDepositService).breakEarly(PHNO, 12L);
+    }
+
+    @Test
+    void theFixedDepositRatesListIsReturned() throws Exception {
+        when(fixedDepositService.rates()).thenReturn(List.of(
+                new com.example.bankapplication.service.FixedDepositService.RateView(3, new java.math.BigDecimal("6.00"))));
+
+        mockMvc.perform(asCaller(get("/bank/fd/rates")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].termMonths").value(3));
     }
 }

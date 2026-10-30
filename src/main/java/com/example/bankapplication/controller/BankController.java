@@ -65,6 +65,8 @@ public class BankController {
     @Autowired
     private DailyLimitService dailyLimitService;
     @Autowired
+    private com.example.bankapplication.service.FixedDepositService fixedDepositService;
+    @Autowired
     private com.example.bankapplication.service.SpendingSummaryService spendingSummaryService;
     @Autowired
     private com.example.bankapplication.service.HelpChatService helpChatService;
@@ -171,6 +173,34 @@ public class BankController {
     public DailyLimitService.LimitView changeLimit(@RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno,
                                                    @RequestBody com.example.bankapplication.dto.LimitRequest request) {
         return dailyLimitService.change(phno, request.dailyLimit());
+    }
+
+    public record OpenFixedDeposit(BigDecimal amount, int termMonths) {
+    }
+
+    // The terms on offer and their rates.
+    @GetMapping("/fd/rates")
+    public List<com.example.bankapplication.service.FixedDepositService.RateView> fixedDepositRates() {
+        return fixedDepositService.rates();
+    }
+
+    // Locks money from the caller's own savings balance; see FixedDepositService.
+    @PostMapping("/fd")
+    public com.example.bankapplication.entity.FixedDeposit openFixedDeposit(
+            @RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno, @RequestBody OpenFixedDeposit request) {
+        return fixedDepositService.open(phno, requirePositiveAmount(request.amount()), request.termMonths());
+    }
+
+    @GetMapping("/fd")
+    public List<com.example.bankapplication.entity.FixedDeposit> myFixedDeposits(
+            @RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno) {
+        return fixedDepositService.list(phno);
+    }
+
+    @PostMapping("/fd/{id}/break")
+    public com.example.bankapplication.entity.FixedDeposit breakFixedDeposit(
+            @RequestAttribute(CustomerAuthInterceptor.AUTHENTICATED_PHNO) long phno, @PathVariable long id) {
+        return fixedDepositService.breakEarly(phno, id);
     }
 
     public record ChatAsk(String message) {

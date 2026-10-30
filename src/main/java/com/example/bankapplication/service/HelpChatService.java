@@ -129,7 +129,7 @@ public class HelpChatService {
         StringBuilder text = new StringBuilder("Your last " + rows.size() + " transaction(s):");
         for (BankTransaction t : rows) {
             text.append("\n").append(t.getCreatedAt() == null ? "earlier" : STAMP.format(t.getCreatedAt().atZone(zone))).append(" - ")
-                    .append("Debit".equalsIgnoreCase(t.getAction()) ? "paid out" : "received").append(" Rs. ").append(money(t.getAmount()))
+                    .append(t.isMoneyOut() ? "paid out" : "received").append(" Rs. ").append(money(t.getAmount()))
                     .append(" (balance Rs. ").append(money(t.getBalance())).append(")");
         }
         text.append("\nThe full list and a CSV are on the Statement card; the Monthly Summary card shows each month.");
@@ -138,7 +138,7 @@ public class HelpChatService {
 
     private Reply payment(long phno) {
         List<BankTransaction> rows = transactions.findByPhno(phno, null, null, PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "createdAt"))).getContent();
-        String last = rows.isEmpty() ? "" : " Your latest entry is a " + ("Debit".equalsIgnoreCase(rows.get(0).getAction()) ? "debit" : "credit")
+        String last = rows.isEmpty() ? "" : " Your latest entry is a " + (rows.get(0).isMoneyOut() ? "debit" : "credit")
                 + " of Rs. " + money(rows.get(0).getAmount()) + (rows.get(0).getCreatedAt() == null ? "" : " on " + STAMP.format(rows.get(0).getCreatedAt().atZone(zone))) + ".";
         return new Reply("A payment or transfer that failed is not taken from your account. If an amount left your balance and the payment "
                 + "did not go through, it is returned automatically within a few working days, and a refunded shop order appears as a credit." + last

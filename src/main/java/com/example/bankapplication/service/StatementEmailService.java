@@ -66,7 +66,7 @@ public class StatementEmailService {
         BigDecimal debits = BigDecimal.ZERO;
         StringBuilder csv = new StringBuilder("Transaction ID,Date,Type,Amount,Balance after\n");
         for (BankTransaction t : rows) {
-            if ("Debit".equalsIgnoreCase(t.getAction())) {
+            if (t.isMoneyOut()) {
                 debits = debits.add(t.getAmount());
             } else {
                 credits = credits.add(t.getAmount());

@@ -37,4 +37,10 @@ public class BankTransaction {
     // Nullable: rows written before this field existed have none. LegacyTransactionTimestampBackfill fills them
     // in once, on startup, since there is no real record of when they actually happened.
     private Instant createdAt;
+
+    /** Money leaving the spendable balance: a withdrawal/payment, or moving money into a fixed deposit. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isMoneyOut() {
+        return "Debit".equalsIgnoreCase(action) || "FD Opened".equalsIgnoreCase(action);
+    }
 }

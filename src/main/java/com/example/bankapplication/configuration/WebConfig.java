@@ -90,6 +90,8 @@ public class WebConfig implements WebMvcConfigurer {
                         "/bank/logout-all",
                         "/bank/sessions",
                         "/bank/limits",
+                        "/bank/fd",
+                        "/bank/fd/**",
                         "/bank/statement/email",
                         "/bank/summary",
                         "/bank/chat",

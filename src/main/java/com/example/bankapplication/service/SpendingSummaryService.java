@@ -63,7 +63,7 @@ public class SpendingSummaryService {
                     continue;
                 }
                 entries++;
-                if ("Debit".equalsIgnoreCase(t.getAction())) {
+                if (t.isMoneyOut()) {
                     out = out.add(t.getAmount());
                     biggest = biggest.max(t.getAmount());
                 } else {
